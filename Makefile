@@ -1,6 +1,11 @@
 OBJS	= \
 	http-parser/http_parser.o \
+	log.o \
+	metrics.o \
 	main.o
+
+CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
+	   -fwrapv -fPIC -Wall -g -gdwarf-2 -falign-functions -faligned-allocation
 
 .PHONY: all
 all: obsd-prom-exporter
@@ -9,7 +14,8 @@ all: obsd-prom-exporter
 clean:
 	rm -f obsd-prom-exporter $(OBJS)
 
-%.o: %.c
+.SUFFIXES: .c .o
+.c.o:
 	$(CC) -c -o $@ $(CFLAGS) $<
 
 obsd-prom-exporter: $(OBJS)
