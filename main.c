@@ -35,6 +35,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <err.h>
@@ -68,15 +69,19 @@ static int on_message_complete(http_parser *);
 static void
 usage(const char *arg0)
 {
-	fprintf(stderr, "usage: %s [-p port]\n", arg0);
+	fprintf(stderr, "usage: %s [-f] [-l logfile] [-p port]\n", arg0);
 	fprintf(stderr, "listens for prometheus http requests\n");
 }
+
+extern FILE *logfile;
 
 int
 main(int argc, char *argv[])
 {
-	const char *optstring = "p:";
+	const char *optstring = "p:fl:";
 	uint16_t port = 27600;
+	int daemon = 1;
+
 	int lsock, sock;
 	struct sockaddr_in laddr, raddr;
 	size_t plen, blen;
@@ -88,6 +93,9 @@ main(int argc, char *argv[])
 	int c;
 	unsigned long int parsed;
 	char *p;
+	pid_t kid;
+
+	logfile = stdout;
 
 	while ((c = getopt(argc, argv, optstring)) != -1) {
 		switch (c) {
@@ -104,10 +112,35 @@ main(int argc, char *argv[])
 			}
 			port = parsed;
 			break;
+		case 'f':
+			daemon = 0;
+			break;
+		case 'l':
+			logfile = fopen(optarg, "a");
+			if (logfile == NULL)
+				err(EXIT_USAGE, "open('%s')", optarg);
+			break;
 		default:
 			usage(argv[0]);
 			return (EXIT_USAGE);
 		}
+	}
+
+	if (daemon) {
+		kid = fork();
+		if (kid < 0) {
+			err(EXIT_ERROR, "fork");
+		} else if (kid > 0) {
+			return (0);
+		}
+		umask(0);
+		if (setsid() < 0)
+			err(EXIT_ERROR, "setsid");
+		chdir("/");
+
+		close(STDIN_FILENO);
+		close(STDOUT_FILENO);
+		close(STDERR_FILENO);
 	}
 
 	registry = registry_build();

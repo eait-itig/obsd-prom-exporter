@@ -39,6 +39,8 @@
 
 #include "log.h"
 
+FILE *logfile = NULL;
+
 void
 tslog(const char *fmt, ...)
 {
@@ -88,5 +90,6 @@ tslog(const char *fmt, ...)
 	/* rem was len - 1, so there's always space for the nul */
 	*p++ = '\0';
 
-	fprintf(stdout, "%s\n", buf);
+	fprintf(logfile, "%s\n", buf);
+	fflush(logfile);
 }
