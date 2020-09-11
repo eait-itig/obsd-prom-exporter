@@ -6,7 +6,6 @@ daemon_flags="-l /var/log/prom-exporter.log"
 
 . /etc/rc.d/rc.subr
 
-pexp="obsd-prom-export"
 rc_reload=NO
 
 rc_pre() {
