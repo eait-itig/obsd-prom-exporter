@@ -65,9 +65,17 @@ static int on_header_value(http_parser *, const char *, size_t);
 static int on_headers_complete(http_parser *);
 static int on_message_complete(http_parser *);
 
+static void
+usage(const char *arg0)
+{
+	fprintf(stderr, "usage: %s [-p port]\n", arg0);
+	fprintf(stderr, "listens for prometheus http requests\n");
+}
+
 int
 main(int argc, char *argv[])
 {
+	const char *optstring = "p:";
 	uint16_t port = 27600;
 	int lsock, sock;
 	struct sockaddr_in laddr, raddr;
@@ -77,6 +85,30 @@ main(int argc, char *argv[])
 	http_parser_settings settings;
 	char *buf;
 	struct registry *registry;
+	int c;
+	unsigned long int parsed;
+	char *p;
+
+	while ((c = getopt(argc, argv, optstring)) != -1) {
+		switch (c) {
+		case 'p':
+			errno = 0;
+			parsed = strtoul(optarg, &p, 0);
+			if (errno != 0 || *p != '\0') {
+				errx(EXIT_USAGE, "invalid argument for "
+				    "-p: '%s'", optarg);
+			}
+			if (parsed >= (1 << 16)) {
+				errx(EXIT_USAGE, "invalid argument for "
+				    "-p: '%s' (too high)", optarg);
+			}
+			port = parsed;
+			break;
+		default:
+			usage(argv[0]);
+			return (EXIT_USAGE);
+		}
+	}
 
 	registry = registry_build();
 
