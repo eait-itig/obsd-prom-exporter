@@ -197,7 +197,7 @@ on_message_complete(http_parser *parser)
 	struct req *req = parser->data;
 	FILE *mf;
 	char *buf;
-	size_t blen = BUFLEN;
+	size_t blen = 128*1024;
 	off_t off;
 	int r;
 

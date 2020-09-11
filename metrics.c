@@ -13,14 +13,17 @@
 #include "metrics.h"
 
 
+extern struct metrics_module_ops collect_pf_ops;
+static struct metrics_module_ops *modops[] = {
+	&collect_pf_ops,
+	NULL
+};
+
+
 struct metrics_module {
 	struct metrics_module *next;
 	struct metrics_module_ops *ops;
 	void *private;
-};
-
-static struct metrics_module_ops *modops[] = {
-	NULL
 };
 
 struct registry {
@@ -182,7 +185,7 @@ free_metric(struct metric *m)
 }
 
 struct label *
-metric_new_label(const char *name, enum metric_val_type type)
+metric_label_new(const char *name, enum metric_val_type type)
 {
 	struct label *l;
 	l = calloc(1, sizeof (struct label));
@@ -223,7 +226,8 @@ metric_new(struct registry *r, const char *name, const char *help,
 		l->owner = m;
 		pl = l;
 	}
-	pl->next = NULL;
+	if (pl != NULL)
+		pl->next = NULL;
 	va_end(va);
 
 	return (m);
@@ -531,12 +535,26 @@ int
 registry_collect(struct registry *r)
 {
 	struct metric *m;
+	struct metrics_module *mod;
 	int rc;
+
+	mod = r->mods;
+	while (mod != NULL) {
+		if (mod->ops->mm_collect != NULL) {
+			rc = mod->ops->mm_collect(mod->private);
+			if (rc != 0)
+				return (rc);
+		}
+		mod = mod->next;
+	}
 
 	m = r->metrics;
 	while (m != NULL) {
-		if ((rc = m->ops.mo_collect(m, m->priv)) != 0)
-			return (rc);
+		if (m->ops.mo_collect != NULL) {
+			rc = m->ops.mo_collect(m, m->priv);
+			if (rc != 0)
+				return (rc);
+		}
 		m = m->next;
 	}
 

@@ -10,6 +10,7 @@ struct registry;
 
 struct metrics_module_ops {
 	void (*mm_register)(struct registry *db, void **modprivate);
+	int (*mm_collect)(void *modprivate);
 	void (*mm_free)(void *modprivate);
 };
 
@@ -29,16 +30,17 @@ enum metric_type {
 	METRIC_COUNTER
 };
 
-struct label *metric_new_label(const char *name, enum metric_val_type type);
+struct label *metric_label_new(const char *name, enum metric_val_type type);
 
 struct metric *metric_new(struct registry *r, const char *name,
     const char *help, enum metric_type type, enum metric_val_type vtype,
-    void *priv, const struct metric_ops *ops, ...);
+    void *priv, const struct metric_ops *ops,
+    ... /* struct label *, NULL */);
 
 void metric_clear(struct metric *m);
-int metric_push(struct metric *m, ...);
-int metric_inc(struct metric *m, ...);
-int metric_update(struct metric *m, ...);
+int metric_push(struct metric *m, ... /* label values, metric value */);
+int metric_inc(struct metric *m, ... /* label values */);
+int metric_update(struct metric *m, ... /* label values, metric value */);
 
 struct registry *registry_build(void);
 struct registry *registry_new_empty(void);

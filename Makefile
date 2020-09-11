@@ -2,6 +2,7 @@ OBJS	= \
 	http-parser/http_parser.o \
 	log.o \
 	metrics.o \
+	collect_pf.o \
 	main.o
 
 CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
