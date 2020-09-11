@@ -34,7 +34,7 @@ OBJS	= \
 	main.o
 
 CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
-	   -fwrapv -fPIC -Wall -g -gdwarf-2 -falign-functions -faligned-allocation
+	   -fwrapv -fPIC -Wall
 
 .PHONY: all
 all: obsd-prom-exporter
