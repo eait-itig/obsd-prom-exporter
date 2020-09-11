@@ -50,3 +50,9 @@ clean:
 obsd-prom-exporter: $(OBJS)
 	$(CC) $(LDFLAGS) $(LIBS) -o $@ $(OBJS)
 
+.PHONY: install
+install: all
+	install -o root -g bin -m 0755 obsd-prom-exporter /usr/local/bin/
+	install -o root -g wheel -m 0755 rc.d/promexporter /etc/rc.d/
+	#groupadd _promexp
+	#useradd -g _promexp _promexp
