@@ -233,6 +233,9 @@ main(int argc, char *argv[])
 		free(parser);
 		free(req);
 	}
+
+	registry_free(registry);
+	return (0);
 }
 
 static int
@@ -286,9 +289,9 @@ send_err(http_parser *parser, enum http_status status)
 static int
 on_message_complete(http_parser *parser)
 {
+	static char *buf = NULL;
 	struct req *req = parser->data;
 	FILE *mf;
-	char *buf;
 	size_t blen = 128*1024;
 	off_t off;
 	int r;
@@ -298,7 +301,8 @@ on_message_complete(http_parser *parser)
 		return (0);
 	}
 
-	buf = malloc(blen);
+	if (buf == NULL)
+		buf = malloc(blen);
 	if (buf == NULL) {
 		tslog("failed to allocate metrics buffer");
 		send_err(parser, 500);
