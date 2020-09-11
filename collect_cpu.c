@@ -44,8 +44,6 @@ cpu_collect(void *modpriv)
 	size_t size = sizeof (priv->stats);
 	int mib[3] = { CTL_KERN, KERN_CPUSTATS, 0 };
 
-	metric_clear(priv->cpu_time);
-
 	if (sysctl(mib, 3, &priv->stats, &size, NULL, 0) == -1) {
 		tslog("failed to get cpu stats: %s", strerror(errno));
 		return (0);

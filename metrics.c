@@ -142,7 +142,7 @@ free_label_val(struct label_val *v)
 }
 
 static void
-free_metric_val(struct metric_val *v)
+free_metric_val_content(struct metric_val *v)
 {
 	struct label_val *lv, *nlv;
 	lv = v->labels;
@@ -155,6 +155,12 @@ free_metric_val(struct metric_val *v)
 	    v->val_string != NULL) {
 		free(v->val_string);
 	}
+}
+
+static void
+free_metric_val(struct metric_val *v)
+{
+	free_metric_val_content(v);
 	free(v);
 }
 
@@ -369,10 +375,15 @@ metric_inc(struct metric *m, ...)
 int
 metric_update(struct metric *m, ...)
 {
-	struct metric_val *mv, *omv;
+	static struct metric_val *mv;
+	struct metric_val *tmp;
+	struct metric_val *omv;
 	va_list va;
 
-	mv = calloc(1, sizeof (struct metric_val));
+	if (mv == NULL)
+		mv = malloc(sizeof (struct metric_val));
+	bzero(mv, sizeof (struct metric_val));
+
 	mv->metric = m;
 
 	va_start(va, m);
@@ -411,14 +422,16 @@ metric_update(struct metric *m, ...)
 				omv->val_string = strdup(mv->val_string);
 				break;
 			}
-			free_metric_val(mv);
+			free_metric_val_content(mv);
 			return (0);
 		}
 		omv = omv->next;
 	}
 
-	mv->next = m->values;
-	m->values = mv;
+	tmp = malloc(sizeof (struct metric_val));
+	bcopy(mv, tmp, sizeof (struct metric_val));
+	tmp->next = m->values;
+	m->values = tmp;
 
 	return (0);
 }
