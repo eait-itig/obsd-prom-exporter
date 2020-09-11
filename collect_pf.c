@@ -29,6 +29,8 @@ struct pf_modpriv {
 
 	struct metric *pf_overloads;
 	struct metric *pf_overload_flushes;
+
+	struct metric *pf_drops;
 };
 
 struct metric_ops pf_metric_ops = {
@@ -78,6 +80,12 @@ pf_register(struct registry *r, void **modpriv)
 	priv->pf_overload_flushes = metric_new(r, "pf_overload_flushes_total",
 	    "Number of times entries have been flushed from overload tables",
 	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &pf_metric_ops, NULL);
+
+	priv->pf_drops = metric_new(r, "pf_drops_total",
+	    "Number of times packets have been dropped due to different "
+	    "pf-related reasons",
+	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &pf_metric_ops,
+	    metric_label_new("reason", METRIC_VAL_STRING), NULL);
 }
 
 static int
@@ -86,6 +94,8 @@ pf_collect(void *modpriv)
 	struct pf_modpriv *priv = modpriv;
 	size_t size = sizeof (priv->status);
 	int mib[3] = { CTL_KERN, KERN_PFSTATUS };
+	const char *drop_names[] = PFRES_NAMES;
+	size_t i;
 
 	if (sysctl(mib, 2, &priv->status, &size, NULL, 0) == -1) {
 		tslog("failed to get pf status: %s", strerror(errno));
@@ -126,6 +136,11 @@ pf_collect(void *modpriv)
 	    priv->status.lcounters[LCNT_OVERLOAD_TABLE]);
 	metric_update(priv->pf_overload_flushes,
 	    priv->status.lcounters[LCNT_OVERLOAD_FLUSH]);
+
+	for (i = 0; drop_names[i] != NULL; ++i) {
+		metric_update(priv->pf_drops, drop_names[i],
+		    priv->status.counters[i]);
+	}
 
 	return (0);
 }
