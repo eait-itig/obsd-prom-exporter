@@ -13,10 +13,12 @@
 #include "metrics.h"
 
 
-extern struct metrics_module_ops collect_pf_ops, collect_cpu_ops;
+extern struct metrics_module_ops
+    collect_pf_ops, collect_cpu_ops, collect_if_ops;
 static struct metrics_module_ops *modops[] = {
 	&collect_pf_ops,
 	&collect_cpu_ops,
+	&collect_if_ops,
 	NULL
 };
 
