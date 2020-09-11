@@ -22,6 +22,7 @@ struct metric_ops {
 enum metric_val_type {
 	METRIC_VAL_STRING,
 	METRIC_VAL_INT64,
+	METRIC_VAL_UINT64,
 	METRIC_VAL_DOUBLE
 };
 

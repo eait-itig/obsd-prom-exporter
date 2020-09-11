@@ -3,6 +3,7 @@ OBJS	= \
 	log.o \
 	metrics.o \
 	collect_pf.o \
+	collect_cpu.o \
 	main.o
 
 CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \

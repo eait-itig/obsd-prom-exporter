@@ -13,9 +13,10 @@
 #include "metrics.h"
 
 
-extern struct metrics_module_ops collect_pf_ops;
+extern struct metrics_module_ops collect_pf_ops, collect_cpu_ops;
 static struct metrics_module_ops *modops[] = {
 	&collect_pf_ops,
+	&collect_cpu_ops,
 	NULL
 };
 
@@ -58,6 +59,7 @@ struct label_val {
 	union {
 		char *val_string;
 		int64_t val_int64;
+		uint64_t val_uint64;
 		double val_double;
 	};
 };
@@ -69,6 +71,7 @@ struct metric_val {
 	union {
 		char *val_string;
 		int64_t val_int64;
+		uint64_t val_uint64;
 		double val_double;
 	};
 };
@@ -84,6 +87,12 @@ compare_label_val(const struct label_val *a, const struct label_val *b)
 	switch (a->label->val_type) {
 	case METRIC_VAL_STRING:
 		return (strcmp(a->val_string, b->val_string));
+	case METRIC_VAL_UINT64:
+		if (a->val_uint64 < b->val_uint64)
+			return (-1);
+		if (a->val_uint64 > b->val_uint64)
+			return (-1);
+		return (0);
 	case METRIC_VAL_INT64:
 		if (a->val_int64 < b->val_int64)
 			return (-1);
@@ -251,6 +260,9 @@ vlabels(struct metric *m, va_list va)
 		case METRIC_VAL_INT64:
 			v->val_int64 = va_arg(va, int64_t);
 			break;
+		case METRIC_VAL_UINT64:
+			v->val_uint64 = va_arg(va, uint64_t);
+			break;
 		case METRIC_VAL_DOUBLE:
 			v->val_double = va_arg(va, double);
 			break;
@@ -285,6 +297,9 @@ metric_push(struct metric *m, ...)
 	case METRIC_VAL_INT64:
 		mv->val_int64 = va_arg(va, int64_t);
 		break;
+	case METRIC_VAL_UINT64:
+		mv->val_int64 = va_arg(va, uint64_t);
+		break;
 	case METRIC_VAL_DOUBLE:
 		mv->val_double = va_arg(va, double);
 		break;
@@ -312,6 +327,9 @@ metric_inc(struct metric *m, ...)
 	case METRIC_VAL_INT64:
 		mv->val_int64 = 1;
 		break;
+	case METRIC_VAL_UINT64:
+		mv->val_uint64 = 1;
+		break;
 	case METRIC_VAL_DOUBLE:
 		mv->val_double = 1.0;
 		break;
@@ -326,6 +344,9 @@ metric_inc(struct metric *m, ...)
 			switch (m->val_type) {
 			case METRIC_VAL_INT64:
 				omv->val_int64++;
+				break;
+			case METRIC_VAL_UINT64:
+				omv->val_uint64++;
 				break;
 			case METRIC_VAL_DOUBLE:
 				omv->val_double += 1.0;
@@ -363,6 +384,9 @@ metric_update(struct metric *m, ...)
 	case METRIC_VAL_INT64:
 		mv->val_int64 = va_arg(va, int64_t);
 		break;
+	case METRIC_VAL_UINT64:
+		mv->val_uint64 = va_arg(va, uint64_t);
+		break;
 	case METRIC_VAL_DOUBLE:
 		mv->val_double = va_arg(va, double);
 		break;
@@ -375,6 +399,9 @@ metric_update(struct metric *m, ...)
 			switch (m->val_type) {
 			case METRIC_VAL_INT64:
 				omv->val_int64 = mv->val_int64;
+				break;
+			case METRIC_VAL_UINT64:
+				omv->val_uint64 = mv->val_uint64;
 				break;
 			case METRIC_VAL_DOUBLE:
 				omv->val_double = mv->val_double;
@@ -415,6 +442,9 @@ print_metric_val(FILE *f, const struct metric_val *mv)
 			case METRIC_VAL_INT64:
 				fprintf(f, "\"%lld\"", lv->val_int64);
 				break;
+			case METRIC_VAL_UINT64:
+				fprintf(f, "\"%llu\"", lv->val_uint64);
+				break;
 			case METRIC_VAL_DOUBLE:
 				fprintf(f, "\"%f\"", lv->val_double);
 				break;
@@ -432,6 +462,9 @@ print_metric_val(FILE *f, const struct metric_val *mv)
 		break;
 	case METRIC_VAL_INT64:
 		fprintf(f, "%lld\n", mv->val_int64);
+		break;
+	case METRIC_VAL_UINT64:
+		fprintf(f, "%llu\n", mv->val_uint64);
 		break;
 	case METRIC_VAL_DOUBLE:
 		fprintf(f, "%f\n", mv->val_double);
