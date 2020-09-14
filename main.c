@@ -106,9 +106,11 @@ extern FILE *logfile;
 int
 main(int argc, char *argv[])
 {
-	const char *optstring = "p:fl:";
+	const char *optstring = "p:fl:P";
 	uint16_t port = 27600;
 	int daemon = 1;
+	/* XXX: default on after new pledges are in base */
+	int do_pledge = 0;
 
 	int lsock, sock;
 	struct sockaddr_in laddr, raddr;
@@ -133,6 +135,9 @@ main(int argc, char *argv[])
 
 	while ((c = getopt(argc, argv, optstring)) != -1) {
 		switch (c) {
+		case 'P':
+			do_pledge = 1;
+			break;
 		case 'p':
 			errno = 0;
 			parsed = strtoul(optarg, &p, 0);
@@ -219,6 +224,13 @@ main(int argc, char *argv[])
 	++upfds;
 
 	tslog("listening on port %d", port);
+
+	if (do_pledge) {
+		if (pledge("stdio inet route vminfo pf", NULL) != 0) {
+			tslog("pledge() failed: %s", strerror(errno));
+			err(EXIT_ERROR, "pledge()");
+		}
+	}
 
 	while (1) {
 		struct timespec now;
