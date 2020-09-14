@@ -32,6 +32,8 @@
 #include <strings.h>
 #include <string.h>
 #include <errno.h>
+#include <poll.h>
+#include <time.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -46,6 +48,7 @@
 
 const int BACKLOG = 8;
 const size_t BUFLEN = 2048;
+const size_t REQ_TIMEOUT = 30;
 
 enum response_type {
 	RESP_NOT_FOUND = 0,
@@ -53,6 +56,12 @@ enum response_type {
 };
 
 struct req {
+	struct req *next;
+	struct req *prev;
+	struct sockaddr_in raddr;
+	size_t pfdnum;
+	struct timespec last_active;
+	struct http_parser *parser;
 	enum response_type resp;
 	int sock;
 	int done;
@@ -68,6 +77,22 @@ static int on_message_complete(http_parser *);
 
 static char *stats_buf = NULL;
 static size_t stats_buf_sz = 0;
+
+static struct req *reqs = NULL;
+
+static void
+free_req(struct req *req)
+{
+	if (req->prev == NULL)
+		reqs = req->next;
+	if (req->prev != NULL)
+		req->prev->next = req->next;
+	if (req->next != NULL)
+		req->next->prev = req->prev;
+	fclose(req->wf);
+	free(req->parser);
+	free(req);
+}
 
 static void
 usage(const char *arg0)
@@ -93,10 +118,14 @@ main(int argc, char *argv[])
 	http_parser_settings settings;
 	char *buf;
 	struct registry *registry;
-	int c;
+	int c, rc;
 	unsigned long int parsed;
 	char *p;
 	pid_t kid;
+	struct pollfd *pfds;
+	size_t npfds, upfds;
+	struct req *req, *nreq;
+	http_parser *parser;
 
 	logfile = stdout;
 
@@ -157,6 +186,10 @@ main(int argc, char *argv[])
 	settings.on_header_field = on_header_field;
 	settings.on_header_value = on_header_value;
 
+	npfds = 64;
+	pfds = calloc(64, sizeof (struct pollfd));
+	upfds = 0;
+
 	lsock = socket(AF_INET, SOCK_STREAM, 0);
 	if (lsock < 0)
 		err(EXIT_SOCKERR, "socket()");
@@ -181,66 +214,148 @@ main(int argc, char *argv[])
 	if (buf == NULL)
 		err(EXIT_MEMORY, "malloc(%zd)", blen);
 
+	pfds[upfds].fd = lsock;
+	pfds[upfds].events = POLLIN | POLLHUP;
+	++upfds;
+
 	tslog("listening on port %d", port);
 
 	while (1) {
-		http_parser *parser;
-		struct req *req;
+		struct timespec now;
 
-		slen = sizeof (raddr);
-		sock = accept(lsock, (struct sockaddr *)&raddr, &slen);
-		if (sock < 0)
-			err(EXIT_SOCKERR, "accept()");
+		rc = poll(pfds, upfds, 1000);
 
-		tslog("accepted connection from %s", inet_ntoa(raddr.sin_addr));
-
-		req = calloc(1, sizeof (struct req));
-		if (req == NULL)
-			err(EXIT_MEMORY, "calloc(%zd)", sizeof (struct req));
-		parser = calloc(1, sizeof (http_parser));
-		if (parser == NULL)
-			err(EXIT_MEMORY, "calloc(%zd)", sizeof (http_parser));
-
-		http_parser_init(parser, HTTP_REQUEST);
-		parser->data = req;
-
-		req->sock = sock;
-		req->registry = registry;
-
-		req->wf = fdopen(sock, "w");
-		if (req->wf == NULL) {
-			tslog("failed to fdopen socket: %s", strerror(errno));
-			close(req->sock);
-			break;
+		if (rc < 0) {
+			if (errno == EINTR)
+				continue;
+			err(EXIT_ERROR, "poll");
 		}
 
-		while (!req->done) {
-			recvd = recv(sock, buf, blen, 0);
-			if (recvd < 0) {
-				tslog("error recv: %s", strerror(errno));
-				close(sock);
-				break;
+		if (clock_gettime(CLOCK_MONOTONIC, &now)) {
+			tslog("clock_gettime(CLOCK_MONOTONIC): %s",
+			    strerror(errno));
+			err(EXIT_ERROR, "clock_gettime(CLOCK_MONOTONIC)");
+		}
+
+		if (rc == 0) {
+			exit(0);
+			goto check_timeouts;
+		}
+
+		if (pfds[0].revents & POLLIN) {
+			slen = sizeof (raddr);
+			sock = accept(lsock, (struct sockaddr *)&raddr, &slen);
+			if (sock < 0)
+				err(EXIT_SOCKERR, "accept()");
+
+			tslog("accepted connection from %s",
+			    inet_ntoa(raddr.sin_addr));
+
+			req = calloc(1, sizeof (struct req));
+			if (req == NULL) {
+				err(EXIT_MEMORY, "calloc(%zd)",
+				    sizeof (struct req));
+			}
+			parser = calloc(1, sizeof (http_parser));
+			if (parser == NULL) {
+				err(EXIT_MEMORY, "calloc(%zd)",
+				    sizeof (http_parser));
 			}
 
-			plen = http_parser_execute(parser, &settings, buf,
-			    recvd);
-			if (parser->upgrade) {
-				/* we don't use this, so just close */
-				tslog("upgrade?");
-				close(sock);
-				break;
-			} else if (plen != recvd) {
-				tslog("http-parser gave error, close");
-				close(sock);
-				break;
+			http_parser_init(parser, HTTP_REQUEST);
+			parser->data = req;
+
+			req->sock = sock;
+			req->raddr = raddr;
+			req->registry = registry;
+			req->parser = parser;
+			req->last_active = now;
+
+			req->wf = fdopen(sock, "w");
+			if (req->wf == NULL) {
+				tslog("failed to fdopen socket: %s",
+				    strerror(errno));
+				close(req->sock);
+				free(parser);
+				free(req);
+				continue;
+			}
+
+			req->next = reqs;
+			if (reqs != NULL)
+				reqs->prev = req;
+			reqs = req;
+		}
+
+		for (req = reqs; req != NULL; req = nreq) {
+			nreq = req->next;
+
+			if (req->pfdnum == 0)
+				continue;
+
+			if (pfds[req->pfdnum].revents & POLLHUP) {
+				tslog("connection closed!");
+				free_req(req);
+				continue;
+			}
+			if (pfds[req->pfdnum].revents & POLLIN) {
+				recvd = recv(sock, buf, blen, 0);
+				if (recvd < 0) {
+					tslog("error recv: %s",
+					    strerror(errno));
+					free_req(req);
+					continue;
+				}
+
+				req->last_active = now;
+
+				plen = http_parser_execute(req->parser,
+				    &settings, buf, recvd);
+				if (parser->upgrade) {
+					/* we don't use this, so just close */
+					tslog("upgrade?");
+					free_req(req);
+					continue;
+				} else if (plen != recvd) {
+					tslog("http-parser gave error, close");
+					free_req(req);
+					continue;
+				}
+
+				if (req->done) {
+					free_req(req);
+					continue;
+				}
+			}
+		}
+check_timeouts:
+		for (req = reqs; req != NULL; req = nreq) {
+			size_t delta;
+			nreq = req->next;
+			delta = now.tv_sec - req->last_active.tv_sec;
+			if (delta > REQ_TIMEOUT) {
+				tslog("conn idle for %zd sec, closing", delta);
+				free_req(req);
 			}
 		}
 
-		free(parser);
-		free(req);
+		upfds = 0;
+		pfds[upfds].fd = lsock;
+		pfds[upfds].events = POLLIN | POLLHUP;
+		++upfds;
+
+		for (req = reqs; req != NULL && upfds < npfds; req = nreq) {
+			nreq = req->next;
+
+			req->pfdnum = upfds;
+			pfds[upfds].fd = req->sock;
+			pfds[upfds].events = POLLIN | POLLHUP;
+			++upfds;
+		}
 	}
 
 	free(buf);
+	free(pfds);
 
 	free(stats_buf);
 	stats_buf_sz = 0;
@@ -293,7 +408,6 @@ send_err(http_parser *parser, enum http_status status)
 	fprintf(req->wf, "Connection: close\r\n");
 	fprintf(req->wf, "\r\n");
 	fflush(req->wf);
-	fclose(req->wf);
 	req->done = 1;
 }
 
@@ -356,7 +470,6 @@ on_message_complete(http_parser *parser)
 	fprintf(req->wf, "%s", stats_buf);
 	fflush(req->wf);
 
-	fclose(req->wf);
 	req->done = 1;
 
 	return (0);
