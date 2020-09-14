@@ -126,17 +126,6 @@ pools_collect(void *modpriv)
 	int pmib[] = { CTL_KERN, KERN_POOL, KERN_POOL_POOL, 0 };
 	char namebuf[32];
 
-	metric_clear(priv->size);
-	metric_clear(priv->nitems);
-	metric_clear(priv->nout);
-	metric_clear(priv->nget);
-	metric_clear(priv->nput);
-	metric_clear(priv->nfail);
-	metric_clear(priv->npagealloc);
-	metric_clear(priv->npagefree);
-	metric_clear(priv->hiwat);
-	metric_clear(priv->nidle);
-
 	size = sizeof (npools);
 	if (sysctl(nmib, 3, &npools, &size, NULL, 0) == -1) {
 		tslog("failed to get npools: %s", strerror(errno));
@@ -161,20 +150,32 @@ pools_collect(void *modpriv)
 			return (0);
 		}
 
-		metric_push(priv->size, namebuf, priv->stats.pr_size);
-		metric_push(priv->nitems, namebuf, priv->stats.pr_nitems);
-		metric_push(priv->nout, namebuf, priv->stats.pr_nout);
+		metric_update(priv->size, namebuf, priv->stats.pr_size);
+		metric_update(priv->nitems, namebuf, priv->stats.pr_nitems);
+		metric_update(priv->nout, namebuf, priv->stats.pr_nout);
 
-		metric_push(priv->nget, namebuf, priv->stats.pr_nget);
-		metric_push(priv->nput, namebuf, priv->stats.pr_nput);
-		metric_push(priv->nfail, namebuf, priv->stats.pr_nfail);
-		metric_push(priv->npagealloc, namebuf,
+		metric_update(priv->nget, namebuf, priv->stats.pr_nget);
+		metric_update(priv->nput, namebuf, priv->stats.pr_nput);
+		metric_update(priv->nfail, namebuf, priv->stats.pr_nfail);
+		metric_update(priv->npagealloc, namebuf,
 		    priv->stats.pr_npagealloc);
-		metric_push(priv->npagefree, namebuf, priv->stats.pr_npagefree);
+		metric_update(priv->npagefree, namebuf,
+		    priv->stats.pr_npagefree);
 
-		metric_push(priv->hiwat, namebuf, priv->stats.pr_hiwat);
-		metric_push(priv->nidle, namebuf, priv->stats.pr_nidle);
+		metric_update(priv->hiwat, namebuf, priv->stats.pr_hiwat);
+		metric_update(priv->nidle, namebuf, priv->stats.pr_nidle);
 	}
+
+	metric_clear_old_values(priv->size);
+	metric_clear_old_values(priv->nitems);
+	metric_clear_old_values(priv->nout);
+	metric_clear_old_values(priv->nget);
+	metric_clear_old_values(priv->nput);
+	metric_clear_old_values(priv->nfail);
+	metric_clear_old_values(priv->npagealloc);
+	metric_clear_old_values(priv->npagefree);
+	metric_clear_old_values(priv->hiwat);
+	metric_clear_old_values(priv->nidle);
 
 	return (0);
 }

@@ -141,15 +141,6 @@ if_collect(void *modpriv)
 
 	buf = priv->buf;
 
-	metric_clear(priv->ipackets);
-	metric_clear(priv->ibytes);
-	metric_clear(priv->ierrors);
-	metric_clear(priv->iqdrops);
-	metric_clear(priv->opackets);
-	metric_clear(priv->obytes);
-	metric_clear(priv->oerrors);
-	metric_clear(priv->oqdrops);
-
 	if (sysctl(mib, 6, NULL, &need, NULL, 0) == -1) {
 		tslog("failed to get if stats: %s", strerror(errno));
 		return (0);
@@ -190,25 +181,34 @@ if_collect(void *modpriv)
 			bcopy(sdl->sdl_data, name, sdl->sdl_nlen);
 			name[sdl->sdl_nlen] = '\0';
 
-			metric_push(priv->ipackets, name,
+			metric_update(priv->ipackets, name,
 			    ifm.ifm_data.ifi_ipackets);
-			metric_push(priv->ibytes, name,
+			metric_update(priv->ibytes, name,
 			    ifm.ifm_data.ifi_ibytes);
-			metric_push(priv->ierrors, name,
+			metric_update(priv->ierrors, name,
 			    ifm.ifm_data.ifi_ierrors);
-			metric_push(priv->iqdrops, name,
+			metric_update(priv->iqdrops, name,
 			    ifm.ifm_data.ifi_iqdrops);
 
-			metric_push(priv->opackets, name,
+			metric_update(priv->opackets, name,
 			    ifm.ifm_data.ifi_opackets);
-			metric_push(priv->obytes, name,
+			metric_update(priv->obytes, name,
 			    ifm.ifm_data.ifi_obytes);
-			metric_push(priv->oerrors, name,
+			metric_update(priv->oerrors, name,
 			    ifm.ifm_data.ifi_oerrors);
-			metric_push(priv->oqdrops, name,
+			metric_update(priv->oqdrops, name,
 			    ifm.ifm_data.ifi_oqdrops);
 		}
 	}
+
+	metric_clear_old_values(priv->ipackets);
+	metric_clear_old_values(priv->ibytes);
+	metric_clear_old_values(priv->ierrors);
+	metric_clear_old_values(priv->iqdrops);
+	metric_clear_old_values(priv->opackets);
+	metric_clear_old_values(priv->obytes);
+	metric_clear_old_values(priv->oerrors);
+	metric_clear_old_values(priv->oqdrops);
 
 	return (0);
 }

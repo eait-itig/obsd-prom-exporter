@@ -102,6 +102,7 @@ struct metric_val {
 	struct metric_val *next;
 	struct metric *metric;
 	struct label_val *labels;
+	int updated;
 	union {
 		char *val_string;
 		int64_t val_int64;
@@ -328,6 +329,7 @@ metric_push(struct metric *m, ...)
 
 	mv = calloc(1, sizeof (struct metric_val));
 	mv->metric = m;
+	mv->updated = 1;
 
 	va_start(va, m);
 	mv->labels = vlabels(m, va);
@@ -361,6 +363,7 @@ metric_inc(struct metric *m, ...)
 
 	mv = calloc(1, sizeof (struct metric_val));
 	mv->metric = m;
+	mv->updated = 1;
 
 	va_start(va, m);
 	mv->labels = vlabels(m, va);
@@ -382,6 +385,7 @@ metric_inc(struct metric *m, ...)
 	omv = m->values;
 	while (omv != NULL) {
 		if (compare_label_vals(mv->labels, omv->labels) == 0) {
+			omv->updated = 1;
 			switch (m->val_type) {
 			case METRIC_VAL_INT64:
 				omv->val_int64++;
@@ -423,6 +427,7 @@ metric_update(struct metric *m, ...)
 	bzero(mv, sizeof (struct metric_val));
 
 	mv->metric = m;
+	mv->updated = 1;
 
 	va_start(va, m);
 	mv->labels = vlabels(m, va);
@@ -445,6 +450,7 @@ metric_update(struct metric *m, ...)
 	omv = m->values;
 	while (omv != NULL) {
 		if (compare_label_vals(mv->labels, omv->labels) == 0) {
+			omv->updated = 1;
 			switch (m->val_type) {
 			case METRIC_VAL_INT64:
 				omv->val_int64 = mv->val_int64;
@@ -621,8 +627,19 @@ int
 registry_collect(struct registry *r)
 {
 	struct metric *m;
+	struct metric_val *mv;
 	struct metrics_module *mod;
 	int rc;
+
+	m = r->metrics;
+	while (m != NULL) {
+		mv = m->values;
+		while (mv != NULL) {
+			mv->updated = 0;
+			mv = mv->next;
+		}
+		m = m->next;
+	}
 
 	mod = r->mods;
 	while (mod != NULL) {
@@ -645,4 +662,25 @@ registry_collect(struct registry *r)
 	}
 
 	return (0);
+}
+
+void
+metric_clear_old_values(struct metric *m)
+{
+	struct metric_val *mv, *nmv, *pmv;
+	pmv = NULL;
+	mv = m->values;
+	while (mv != NULL) {
+		nmv = mv->next;
+		if (!mv->updated) {
+			free_metric_val(mv);
+			if (pmv != NULL)
+				pmv->next = nmv;
+			else
+				m->values = nmv;
+		} else {
+			pmv = mv;
+		}
+		mv = nmv;
+	}
 }

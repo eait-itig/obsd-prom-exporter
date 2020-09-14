@@ -65,9 +65,20 @@ struct metric *metric_new(struct registry *r, const char *name,
     void *priv, const struct metric_ops *ops,
     ... /* struct label *, NULL */);
 
+/* Removes all metric values, new and old */
 void metric_clear(struct metric *m);
+/*
+ * Removes all metric values which have not been updated in the current
+ * collection cycle (i.e. since registry_collect() was called)
+ */
+void metric_clear_old_values(struct metric *m);
+
+/* Pushes a metric value, assuming no other value with the same labels exists */
 int metric_push(struct metric *m, ... /* label values, metric value */);
+
+/* Increments a metric value */
 int metric_inc(struct metric *m, ... /* label values */);
+/* Updates a metric value to a new value */
 int metric_update(struct metric *m, ... /* label values, metric value */);
 
 struct registry *registry_build(void);
