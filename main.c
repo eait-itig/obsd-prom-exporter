@@ -237,10 +237,8 @@ main(int argc, char *argv[])
 			err(EXIT_ERROR, "clock_gettime(CLOCK_MONOTONIC)");
 		}
 
-		if (rc == 0) {
-			exit(0);
+		if (rc == 0)
 			goto check_timeouts;
-		}
 
 		if (pfds[0].revents & POLLIN) {
 			slen = sizeof (raddr);
