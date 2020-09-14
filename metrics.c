@@ -60,6 +60,8 @@ struct metrics_module {
 struct registry {
 	struct metrics_module *mods;
 	struct metric *metrics;
+	/* cached temporary metric_val for metric_update */
+	struct metric_val *tmp;
 };
 
 struct metric {
@@ -254,6 +256,7 @@ metric_new(struct registry *r, const char *name, const char *help,
 	m->help = strdup(help);
 	m->type = type;
 	m->val_type = vtype;
+	m->owner = r;
 
 	m->priv = priv;
 	m->ops = *ops;
@@ -405,13 +408,16 @@ metric_inc(struct metric *m, ...)
 int
 metric_update(struct metric *m, ...)
 {
-	static struct metric_val *mv;
+	struct metric_val *mv;
 	struct metric_val *tmp;
 	struct metric_val *omv;
+	struct registry *r;
 	va_list va;
 
-	if (mv == NULL)
-		mv = malloc(sizeof (struct metric_val));
+	r = m->owner;
+	if (r->tmp == NULL)
+		r->tmp = malloc(sizeof (struct metric_val));
+	mv = r->tmp;
 	bzero(mv, sizeof (struct metric_val));
 
 	mv->metric = m;
@@ -565,6 +571,8 @@ registry_free(struct registry *r)
 {
 	struct metric *m, *nm;
 	struct metrics_module *mod, *nmod;
+
+	free(r->tmp);
 
 	m = r->metrics;
 	while (m != NULL) {

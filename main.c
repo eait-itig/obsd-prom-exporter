@@ -66,6 +66,9 @@ static int on_header_value(http_parser *, const char *, size_t);
 static int on_headers_complete(http_parser *);
 static int on_message_complete(http_parser *);
 
+static char *stats_buf = NULL;
+static size_t stats_buf_sz = 0;
+
 static void
 usage(const char *arg0)
 {
@@ -96,6 +99,8 @@ main(int argc, char *argv[])
 	pid_t kid;
 
 	logfile = stdout;
+
+	tzset();
 
 	while ((c = getopt(argc, argv, optstring)) != -1) {
 		switch (c) {
@@ -182,6 +187,7 @@ main(int argc, char *argv[])
 		http_parser *parser;
 		struct req *req;
 
+		slen = sizeof (raddr);
 		sock = accept(lsock, (struct sockaddr *)&raddr, &slen);
 		if (sock < 0)
 			err(EXIT_SOCKERR, "accept()");
@@ -233,6 +239,11 @@ main(int argc, char *argv[])
 		free(parser);
 		free(req);
 	}
+
+	free(buf);
+
+	free(stats_buf);
+	stats_buf_sz = 0;
 
 	registry_free(registry);
 	return (0);
@@ -289,10 +300,8 @@ send_err(http_parser *parser, enum http_status status)
 static int
 on_message_complete(http_parser *parser)
 {
-	static char *buf = NULL;
 	struct req *req = parser->data;
 	FILE *mf;
-	size_t blen = 128*1024;
 	off_t off;
 	int r;
 
@@ -301,14 +310,16 @@ on_message_complete(http_parser *parser)
 		return (0);
 	}
 
-	if (buf == NULL)
-		buf = malloc(blen);
-	if (buf == NULL) {
+	if (stats_buf == NULL) {
+		stats_buf_sz = 128*1024;
+		stats_buf = malloc(stats_buf_sz);
+	}
+	if (stats_buf == NULL) {
 		tslog("failed to allocate metrics buffer");
 		send_err(parser, 500);
 		return (0);
 	}
-	mf = fmemopen(buf, blen, "w");
+	mf = fmemopen(stats_buf, stats_buf_sz, "w");
 	if (mf == NULL) {
 		tslog("fmemopen failed: %s", strerror(errno));
 		send_err(parser, 500);
@@ -329,6 +340,7 @@ on_message_complete(http_parser *parser)
 		send_err(parser, 500);
 		return (0);
 	}
+	fclose(mf);
 	tslog("done, sending %lld bytes", off);
 
 	fprintf(req->wf, "HTTP/%d.%d %d %s\r\n", parser->http_major,
@@ -341,7 +353,7 @@ on_message_complete(http_parser *parser)
 	fprintf(req->wf, "\r\n");
 	fflush(req->wf);
 
-	fprintf(req->wf, "%s", buf);
+	fprintf(req->wf, "%s", stats_buf);
 	fflush(req->wf);
 
 	fclose(req->wf);
