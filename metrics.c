@@ -39,6 +39,13 @@
 #include "log.h"
 #include "metrics.h"
 
+/*
+ * Counters exceeding this value will be wrapped to avoid precision issues
+ * in prometheus (it expects exporters to be using double floating point
+ * internally).
+ */
+const uint64_t MAX_COUNTER_MASK = (1ULL << 53) - 1;
+
 
 extern struct metrics_module_ops
     collect_pf_ops, collect_cpu_ops, collect_if_ops, collect_uvm_ops,
@@ -341,7 +348,7 @@ metric_push(struct metric *m, ...)
 		mv->val_int64 = va_arg(va, int64_t);
 		break;
 	case METRIC_VAL_UINT64:
-		mv->val_int64 = va_arg(va, uint64_t);
+		mv->val_uint64 = va_arg(va, uint64_t);
 		break;
 	case METRIC_VAL_DOUBLE:
 		mv->val_double = va_arg(va, double);
@@ -485,6 +492,7 @@ print_metric_val(FILE *f, const struct metric_val *mv)
 {
 	const struct metric *m = mv->metric;
 	const struct label_val *lv;
+	uint64_t uv;
 
 	fprintf(f, "%s", m->name);
 	lv = mv->labels;
@@ -500,7 +508,8 @@ print_metric_val(FILE *f, const struct metric_val *mv)
 				fprintf(f, "\"%lld\"", lv->val_int64);
 				break;
 			case METRIC_VAL_UINT64:
-				fprintf(f, "\"%llu\"", lv->val_uint64);
+				uv = lv->val_uint64;
+				fprintf(f, "\"%llu\"", uv);
 				break;
 			case METRIC_VAL_DOUBLE:
 				fprintf(f, "\"%f\"", lv->val_double);
@@ -521,7 +530,10 @@ print_metric_val(FILE *f, const struct metric_val *mv)
 		fprintf(f, "%lld\n", mv->val_int64);
 		break;
 	case METRIC_VAL_UINT64:
-		fprintf(f, "%llu\n", mv->val_uint64);
+		uv = mv->val_uint64;
+		if (m->type == METRIC_COUNTER)
+			uv &= MAX_COUNTER_MASK;
+		fprintf(f, "%llu\n", uv);
 		break;
 	case METRIC_VAL_DOUBLE:
 		fprintf(f, "%f\n", mv->val_double);
