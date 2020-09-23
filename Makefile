@@ -32,6 +32,7 @@ OBJS	= \
 	collect_if.o \
 	collect_uvm.o \
 	collect_pools.o \
+	collect_procs.o \
 	main.o
 
 CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
