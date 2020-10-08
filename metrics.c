@@ -129,6 +129,12 @@ compare_label_val(const struct label_val *a, const struct label_val *b)
 		errx(EXIT_ERROR, "invalid label chain comparison");
 	switch (a->label->val_type) {
 	case METRIC_VAL_STRING:
+		if (a->val_string == NULL && b->val_string != NULL)
+			return (-1);
+		if (a->val_string != NULL && b->val_string == NULL)
+			return (1);
+		if (a->val_string == b->val_string)
+			return (0);
 		return (strcmp(a->val_string, b->val_string));
 	case METRIC_VAL_UINT64:
 		if (a->val_uint64 < b->val_uint64)

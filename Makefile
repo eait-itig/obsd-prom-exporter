@@ -31,7 +31,7 @@ OBJS	= \
 	main.o
 
 CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
-	   -fwrapv -fPIC -Wall -m64
+	   -fwrapv -fPIC -Wall -m64 -msave-args -gdwarf-2
 LDFLAGS += -m64 -lnsl -lsocket -lkstat -lssp
 
 .PHONY: all
@@ -47,6 +47,7 @@ clean:
 
 prom-exporter: $(OBJS)
 	$(CC) $(LDFLAGS) $(LIBS) -o $@ $(OBJS)
+	ctfconvert prom-exporter
 
 .PHONY: install
 install: all
