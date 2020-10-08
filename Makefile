@@ -52,3 +52,5 @@ prom-exporter: $(OBJS)
 .PHONY: install
 install: all
 	install -o root -g bin -m 0755 prom-exporter /opt/local/bin/
+	install -o root -g bin -m 0644 prom-exporter.xml /opt/local/lib/svc/manifest/
+	svccfg import /opt/local/lib/svc/manifest/prom-exporter.xml
