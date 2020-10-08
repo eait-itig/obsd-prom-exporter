@@ -15,6 +15,7 @@ struct kstat_modpriv {
 	struct metric *net_obytes64, *net_rbytes64, *net_opackets64,
 	    *net_ipackets64, *net_ierrors, *net_oerrors, *net_norcvbuf;
 	struct metric *cpu_time, *ncpus;
+	struct metric *nfs_calls;
 };
 
 struct metric_ops kstat_metric_ops = {
@@ -151,6 +152,12 @@ kstat_register(struct registry *r, void **modpriv)
 	priv->ncpus = metric_new(r, "cpu_count",
 	    "Number of logical CPUs on the system",
 	    METRIC_GAUGE, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
+	    NULL);
+
+	priv->nfs_calls = metric_new(r, "nfs_server_calls_total",
+	    "Number of NFS calls handled by the NFS server",
+	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
+	    metric_label_new("version", METRIC_VAL_UINT64),
 	    NULL);
 }
 
@@ -428,6 +435,25 @@ kstat_collect(void *modpriv)
 			continue;
 		metric_inc_by(priv->cpu_time, "user", dp->value.ui64);
 	}
+
+	sd = kstat_lookup(priv->ctl, "nfs", -1, NULL);
+	for (; sd != NULL; sd = sd->ks_next) {
+		if (strcmp(sd->ks_module, "nfs") != 0)
+			continue;
+		if (strcmp(sd->ks_name, "nfs_server") != 0)
+			continue;
+		if (sd->ks_type != KSTAT_TYPE_NAMED)
+			continue;
+
+		kstat_read(priv->ctl, sd, NULL);
+
+		dp = kstat_data_lookup(sd, "calls");
+		if (dp == NULL)
+			continue;
+		metric_update(priv->nfs_calls, (uint64_t)sd->ks_instance,
+		    dp->value.ui64);
+	}
+
 
 	return (0);
 }
