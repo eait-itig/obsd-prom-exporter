@@ -169,6 +169,7 @@ kstat_collect(void *modpriv)
 	kstat_named_t *dp;
 	kstat_io_t io;
 	char *prod, *serial, *ptr, *zname;
+	const char *intf;
 
 	kstat_chain_update(priv->ctl);
 
@@ -310,29 +311,35 @@ kstat_collect(void *modpriv)
 	metric_clear_old_values(priv->vfs_wtime);
 	metric_clear_old_values(priv->vfs_wlentime);
 
-	sd = kstat_lookup(priv->ctl, "link", -1, NULL);
-	for (; sd != NULL; sd = sd->ks_next) {
-		if (strcmp(sd->ks_module, "link") != 0)
+	for (sd = priv->ctl->kc_chain; sd != NULL; sd = sd->ks_next) {
+		if (strcmp(sd->ks_name, "mac") == 0 &&
+		    strcmp(sd->ks_class, "net") == 0) {
+			intf = sd->ks_module;
+		} else if (strcmp(sd->ks_module, "link") == 0 &&
+		    strcmp(sd->ks_class, "net") == 0) {
+			intf = sd->ks_name;
+		} else {
 			continue;
+		}
 		if (sd->ks_type != KSTAT_TYPE_NAMED)
 			continue;
 
 		kstat_read(priv->ctl, sd, NULL);
 
 		dp = kstat_data_lookup(sd, "zonename");
-		if (dp == NULL)
-			continue;
-		if (dp->data_type == KSTAT_DATA_STRING)
+		if (dp != NULL &&
+		    dp->data_type == KSTAT_DATA_STRING) {
 			zname = strdup(dp->value.str.addr.ptr);
-		else
-			continue;
+		} else {
+			zname = NULL;
+		}
 
 		dp = kstat_data_lookup(sd, "ipackets64");
 		if (dp == NULL) {
 			free(zname);
 			continue;
 		}
-		metric_update(priv->net_ipackets64, sd->ks_name, zname,
+		metric_update(priv->net_ipackets64, intf, zname,
 		    dp->value.ui64);
 
 		dp = kstat_data_lookup(sd, "opackets64");
@@ -340,7 +347,7 @@ kstat_collect(void *modpriv)
 			free(zname);
 			continue;
 		}
-		metric_update(priv->net_opackets64, sd->ks_name, zname,
+		metric_update(priv->net_opackets64, intf, zname,
 		    dp->value.ui64);
 
 		dp = kstat_data_lookup(sd, "rbytes64");
@@ -348,7 +355,7 @@ kstat_collect(void *modpriv)
 			free(zname);
 			continue;
 		}
-		metric_update(priv->net_rbytes64, sd->ks_name, zname,
+		metric_update(priv->net_rbytes64, intf, zname,
 		    dp->value.ui64);
 
 		dp = kstat_data_lookup(sd, "obytes64");
@@ -356,7 +363,7 @@ kstat_collect(void *modpriv)
 			free(zname);
 			continue;
 		}
-		metric_update(priv->net_obytes64, sd->ks_name, zname,
+		metric_update(priv->net_obytes64, intf, zname,
 		    dp->value.ui64);
 
 		dp = kstat_data_lookup(sd, "ierrors");
@@ -364,7 +371,7 @@ kstat_collect(void *modpriv)
 			free(zname);
 			continue;
 		}
-		metric_update(priv->net_ierrors, sd->ks_name, zname,
+		metric_update(priv->net_ierrors, intf, zname,
 		    (uint64_t)dp->value.ui32);
 
 		dp = kstat_data_lookup(sd, "oerrors");
@@ -372,7 +379,7 @@ kstat_collect(void *modpriv)
 			free(zname);
 			continue;
 		}
-		metric_update(priv->net_oerrors, sd->ks_name, zname,
+		metric_update(priv->net_oerrors, intf, zname,
 		    (uint64_t)dp->value.ui32);
 
 		dp = kstat_data_lookup(sd, "norcvbuf");
@@ -380,7 +387,7 @@ kstat_collect(void *modpriv)
 			free(zname);
 			continue;
 		}
-		metric_update(priv->net_norcvbuf, sd->ks_name, zname,
+		metric_update(priv->net_norcvbuf, intf, zname,
 		    (uint64_t)dp->value.ui32);
 
 		free(zname);
