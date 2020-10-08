@@ -27,35 +27,27 @@ OBJS	= \
 	http-parser/http_parser.o \
 	log.o \
 	metrics.o \
-	collect_pf.o \
-	collect_cpu.o \
-	collect_if.o \
-	collect_uvm.o \
-	collect_pools.o \
-	collect_procs.o \
-	collect_disk.o \
+	collect_kstat.o \
 	main.o
 
 CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
-	   -fwrapv -fPIC -Wall
+	   -fwrapv -fPIC -Wall -m64
+LDFLAGS += -m64 -lnsl -lsocket -lkstat -lssp
 
 .PHONY: all
-all: obsd-prom-exporter
+all: prom-exporter
 
 .PHONY: clean
 clean:
-	rm -f obsd-prom-exporter $(OBJS)
+	rm -f prom-exporter $(OBJS)
 
 .SUFFIXES: .c .o
 .c.o:
 	$(CC) -c -o $@ $(CFLAGS) $<
 
-obsd-prom-exporter: $(OBJS)
+prom-exporter: $(OBJS)
 	$(CC) $(LDFLAGS) $(LIBS) -o $@ $(OBJS)
 
 .PHONY: install
 install: all
-	install -o root -g bin -m 0755 obsd-prom-exporter /usr/local/bin/
-	install -o root -g wheel -m 0755 rc.d/promexporter /etc/rc.d/
-	#groupadd _promexp
-	#useradd -g _promexp _promexp
+	install -o root -g bin -m 0755 prom-exporter /opt/local/bin/

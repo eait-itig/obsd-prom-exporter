@@ -33,6 +33,7 @@
 #include <strings.h>
 #include <string.h>
 #include <err.h>
+#include <inttypes.h>
 
 #include <sys/types.h>
 #include <sys/tree.h>
@@ -49,17 +50,9 @@
 const uint64_t MAX_COUNTER_MASK = (1ULL << 53) - 1;
 
 
-extern struct metrics_module_ops
-    collect_pf_ops, collect_cpu_ops, collect_if_ops, collect_uvm_ops,
-    collect_pools_ops, collect_procs_ops, collect_disk_ops;
+extern struct metrics_module_ops collect_kstat_ops;
 static struct metrics_module_ops *modops[] = {
-	&collect_pf_ops,
-	&collect_cpu_ops,
-	&collect_if_ops,
-	&collect_uvm_ops,
-	&collect_pools_ops,
-	&collect_procs_ops,
-	&collect_disk_ops,
+	&collect_kstat_ops,
 	NULL
 };
 
@@ -161,6 +154,7 @@ compare_label_val(const struct label_val *a, const struct label_val *b)
 			return (1);
 		return (0);
 	}
+	return (0);
 }
 
 static int
@@ -323,6 +317,7 @@ vlabels(struct metric *m, va_list va)
 	struct label *lbl;
 	struct label_val *v;
 	struct label_val *firstv = NULL, *lastv = NULL;
+	const char *strv;
 
 	lbl = m->labels;
 	while (lbl != NULL) {
@@ -330,7 +325,8 @@ vlabels(struct metric *m, va_list va)
 		v->label = lbl;
 		switch (lbl->val_type) {
 		case METRIC_VAL_STRING:
-			v->val_string = strdup(va_arg(va, const char *));
+			strv = va_arg(va, const char *);
+			v->val_string = (strv == NULL) ? NULL : strdup(strv);
 			break;
 		case METRIC_VAL_INT64:
 			v->val_int64 = va_arg(va, int64_t);
@@ -514,33 +510,36 @@ static void
 print_metric_val(FILE *f, const struct metric_val *mv)
 {
 	const struct metric *m = mv->metric;
-	const struct label_val *lv;
+	const struct label_val *lv, *plv = NULL;
 	uint64_t uv;
 
 	fprintf(f, "%s", m->name);
 	lv = mv->labels;
 	if (lv != NULL) {
 		fprintf(f, "{");
-		while (lv != NULL) {
+		for (; lv != NULL; lv = lv->next) {
+			if (lv->label->val_type == METRIC_VAL_STRING &&
+			    lv->val_string == NULL)
+				continue;
+			if (plv != NULL)
+				fprintf(f, ", ");
 			fprintf(f, "%s=", lv->label->name);
 			switch (lv->label->val_type) {
 			case METRIC_VAL_STRING:
 				fprintf(f, "\"%s\"", lv->val_string);
 				break;
 			case METRIC_VAL_INT64:
-				fprintf(f, "\"%lld\"", lv->val_int64);
+				fprintf(f, "\"%" PRId64 "\"", lv->val_int64);
 				break;
 			case METRIC_VAL_UINT64:
 				uv = lv->val_uint64;
-				fprintf(f, "\"%llu\"", uv);
+				fprintf(f, "\"%" PRIu64 "\"", uv);
 				break;
 			case METRIC_VAL_DOUBLE:
 				fprintf(f, "\"%f\"", lv->val_double);
 				break;
 			}
-			lv = lv->next;
-			if (lv != NULL)
-				fprintf(f, ", ");
+			plv = lv;
 		}
 		fprintf(f, "}");
 	}
@@ -550,13 +549,13 @@ print_metric_val(FILE *f, const struct metric_val *mv)
 		fprintf(f, "%s\n", mv->val_string);
 		break;
 	case METRIC_VAL_INT64:
-		fprintf(f, "%lld\n", mv->val_int64);
+		fprintf(f, "%" PRId64 "\n", mv->val_int64);
 		break;
 	case METRIC_VAL_UINT64:
 		uv = mv->val_uint64;
 		if (m->type == METRIC_COUNTER)
 			uv &= MAX_COUNTER_MASK;
-		fprintf(f, "%llu\n", uv);
+		fprintf(f, "%" PRIu64 "\n", uv);
 		break;
 	case METRIC_VAL_DOUBLE:
 		fprintf(f, "%f\n", mv->val_double);
@@ -712,3 +711,4 @@ metric_clear_old_values(struct metric *m)
 		free_metric_val(mv);
 	}
 }
+
