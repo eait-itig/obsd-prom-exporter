@@ -14,6 +14,7 @@ struct kstat_modpriv {
 	struct metric *vfs_rtime, *vfs_rlentime, *vfs_wtime, *vfs_wlentime;
 	struct metric *net_obytes64, *net_rbytes64, *net_opackets64,
 	    *net_ipackets64, *net_ierrors, *net_oerrors, *net_norcvbuf;
+	struct metric *cpu_time, *ncpus;
 };
 
 struct metric_ops kstat_metric_ops = {
@@ -140,6 +141,16 @@ kstat_register(struct registry *r, void **modpriv)
 	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
 	    metric_label_new("interface", METRIC_VAL_STRING),
 	    metric_label_new("zonename", METRIC_VAL_STRING),
+	    NULL);
+
+	priv->cpu_time = metric_new(r, "cpu_time_spent_nsec_total",
+	    "Total time spent in different CPU states",
+	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
+	    metric_label_new("state", METRIC_VAL_STRING),
+	    NULL);
+	priv->ncpus = metric_new(r, "cpu_count",
+	    "Number of logical CPUs on the system",
+	    METRIC_GAUGE, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
 	    NULL);
 }
 
@@ -375,6 +386,48 @@ kstat_collect(void *modpriv)
 	metric_clear_old_values(priv->net_ierrors);
 	metric_clear_old_values(priv->net_oerrors);
 	metric_clear_old_values(priv->net_norcvbuf);
+
+	metric_clear(priv->ncpus);
+	metric_clear(priv->cpu_time);
+
+	sd = kstat_lookup(priv->ctl, "cpu", -1, NULL);
+	for (; sd != NULL; sd = sd->ks_next) {
+		if (strcmp(sd->ks_module, "cpu") != 0)
+			continue;
+		if (strcmp(sd->ks_name, "sys") != 0)
+			continue;
+		if (sd->ks_type != KSTAT_TYPE_NAMED)
+			continue;
+
+		kstat_read(priv->ctl, sd, NULL);
+
+		metric_inc(priv->ncpus);
+
+		dp = kstat_data_lookup(sd, "cpu_nsec_dtrace");
+		if (dp == NULL)
+			continue;
+		metric_inc_by(priv->cpu_time, "dtrace", dp->value.ui64);
+
+		dp = kstat_data_lookup(sd, "cpu_nsec_intr");
+		if (dp == NULL)
+			continue;
+		metric_inc_by(priv->cpu_time, "intr", dp->value.ui64);
+
+		dp = kstat_data_lookup(sd, "cpu_nsec_idle");
+		if (dp == NULL)
+			continue;
+		metric_inc_by(priv->cpu_time, "idle", dp->value.ui64);
+
+		dp = kstat_data_lookup(sd, "cpu_nsec_kernel");
+		if (dp == NULL)
+			continue;
+		metric_inc_by(priv->cpu_time, "kernel", dp->value.ui64);
+
+		dp = kstat_data_lookup(sd, "cpu_nsec_user");
+		if (dp == NULL)
+			continue;
+		metric_inc_by(priv->cpu_time, "user", dp->value.ui64);
+	}
 
 	return (0);
 }

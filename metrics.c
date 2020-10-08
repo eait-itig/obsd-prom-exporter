@@ -445,6 +445,62 @@ metric_inc(struct metric *m, ...)
 }
 
 int
+metric_inc_by(struct metric *m, ...)
+{
+	struct metric_val *mv, *omv;
+	va_list va;
+
+	mv = calloc(1, sizeof (struct metric_val));
+	mv->metric = m;
+	mv->updated = 1;
+
+	va_start(va, m);
+	mv->labels = vlabels(m, va);
+	switch (m->val_type) {
+	case METRIC_VAL_STRING:
+		return (EINVAL);
+	case METRIC_VAL_INT64:
+		mv->val_int64 = va_arg(va, int64_t);
+		break;
+	case METRIC_VAL_UINT64:
+		mv->val_uint64 = va_arg(va, uint64_t);
+		break;
+	case METRIC_VAL_DOUBLE:
+		mv->val_double = va_arg(va, double);
+		break;
+	}
+	va_end(va);
+
+	omv = m->values;
+	while (omv != NULL) {
+		if (compare_label_vals(mv->labels, omv->labels) == 0) {
+			omv->updated = 1;
+			switch (m->val_type) {
+			case METRIC_VAL_INT64:
+				omv->val_int64 += mv->val_int64;
+				break;
+			case METRIC_VAL_UINT64:
+				omv->val_uint64 += mv->val_uint64;
+				break;
+			case METRIC_VAL_DOUBLE:
+				omv->val_double += mv->val_double;
+				break;
+			case METRIC_VAL_STRING:
+				return (EINVAL);
+			}
+			free_metric_val(mv);
+			return (0);
+		}
+		omv = omv->next;
+	}
+
+	mv->next = m->values;
+	m->values = mv;
+
+	return (0);
+}
+
+int
 metric_update(struct metric *m, ...)
 {
 	struct metric_val *mv;

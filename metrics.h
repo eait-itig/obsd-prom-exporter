@@ -78,6 +78,8 @@ int metric_push(struct metric *m, ... /* label values, metric value */);
 
 /* Increments a metric value */
 int metric_inc(struct metric *m, ... /* label values */);
+/* Increments a metric value by a set amount */
+int metric_inc_by(struct metric *m, ... /* label values, metric value */);
 /* Updates a metric value to a new value */
 int metric_update(struct metric *m, ... /* label values, metric value */);
 
