@@ -1,11 +1,41 @@
+/*
+ *
+ * Copyright 2020 The University of Queensland
+ * Author: Alex Wilson <alex@uq.edu.au>
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <errno.h>
+#include <err.h>
 #include <sys/types.h>
 
 #include <kstat.h>
+#include <sys/sysinfo.h>
 
+#include "log.h"
 #include "metrics.h"
 
 struct kstat_modpriv {
@@ -16,6 +46,10 @@ struct kstat_modpriv {
 	    *net_ipackets64, *net_ierrors, *net_oerrors, *net_norcvbuf;
 	struct metric *cpu_time, *ncpus;
 	struct metric *nfs_calls;
+	struct metric *arc_hits, *arc_misses, *arc_size, *arc_l2_hits,
+	    *arc_l2_misses, *arc_l2_size;
+	struct metric *swap_resv, *swap_alloc, *swap_avail, *swap_free,
+	    *freemem;
 };
 
 struct metric_ops kstat_metric_ops = {
@@ -30,9 +64,15 @@ kstat_register(struct registry *r, void **modpriv)
 	struct kstat_modpriv *priv;
 
 	priv = calloc(1, sizeof (struct kstat_modpriv));
+	if (priv == NULL)
+		err(EXIT_ERROR, "calloc");
 	*modpriv = priv;
 
 	priv->ctl = kstat_open();
+	if (priv->ctl == NULL) {
+		tslog("failed to open kstats");
+		return;
+	}
 
 	priv->rtime = metric_new(r, "io_device_busy_nsec_total",
 	    "IO device busy (service) total time in nanoseconds",
@@ -159,6 +199,42 @@ kstat_register(struct registry *r, void **modpriv)
 	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
 	    metric_label_new("version", METRIC_VAL_UINT64),
 	    NULL);
+
+	priv->arc_hits = metric_new(r, "arcstats_hits_total",
+	    "ARC hits", METRIC_COUNTER, METRIC_VAL_UINT64, NULL,
+	    &kstat_metric_ops, NULL);
+	priv->arc_misses = metric_new(r, "arcstats_misses_total",
+	    "ARC misses", METRIC_COUNTER, METRIC_VAL_UINT64, NULL,
+	    &kstat_metric_ops, NULL);
+	priv->arc_size = metric_new(r, "arcstats_size_bytes",
+	    "ARC total size in bytes", METRIC_GAUGE, METRIC_VAL_UINT64,
+	    NULL, &kstat_metric_ops, NULL);
+	priv->arc_l2_hits = metric_new(r, "arcstats_l2_hits_total",
+	    "L2 ARC hits", METRIC_COUNTER, METRIC_VAL_UINT64, NULL,
+	    &kstat_metric_ops, NULL);
+	priv->arc_l2_misses = metric_new(r, "arcstats_l2_misses_total",
+	    "L2 ARC misses", METRIC_COUNTER, METRIC_VAL_UINT64, NULL,
+	    &kstat_metric_ops, NULL);
+	priv->arc_l2_size = metric_new(r, "arcstats_l2_size_bytes",
+	    "L2 ARC total size in bytes", METRIC_GAUGE, METRIC_VAL_UINT64,
+	    NULL, &kstat_metric_ops, NULL);
+
+	priv->swap_resv = metric_new(r, "vminfo_swap_resv_sample_bytes_total",
+	    "Sum of 1-second samples of reserved swap memory",
+	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
+	    NULL);
+	priv->swap_alloc = metric_new(r, "vminfo_swap_alloc_sample_bytes_total",
+	    "Sum of 1-second samples of allocated swap memory",
+	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
+	    NULL);
+	priv->swap_avail = metric_new(r, "vminfo_swap_avail_sample_bytes_total",
+	    "Sum of 1-second samples of available (unreserved) swap memory",
+	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
+	    NULL);
+	priv->swap_free = metric_new(r, "vminfo_swap_free_sample_bytes_total",
+	    "Sum of 1-second samples of free swap memory",
+	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
+	    NULL);
 }
 
 static int
@@ -171,7 +247,13 @@ kstat_collect(void *modpriv)
 	char *prod, *serial, *ptr, *zname;
 	const char *intf;
 
-	kstat_chain_update(priv->ctl);
+	if (priv->ctl == NULL)
+		return (0);
+
+	if (kstat_chain_update(priv->ctl) < 0) {
+		tslog("failed to update kstats: %s", strerror(errno));
+		return (-1);
+	}
 
 	sd = kstat_lookup(priv->ctl, "sd", -1, NULL);
 	for (; sd != NULL; sd = sd->ks_next) {
@@ -186,7 +268,9 @@ kstat_collect(void *modpriv)
 		if (sderr == NULL)
 			continue;
 
-		kstat_read(priv->ctl, sderr, NULL);
+		if (kstat_read(priv->ctl, sderr, NULL) < 0) {
+			continue;
+		}
 
 		dp = kstat_data_lookup(sderr, "Product");
 		if (dp == NULL)
@@ -217,7 +301,11 @@ kstat_collect(void *modpriv)
 			*ptr = '\0';
 
 		bzero(&io, sizeof (io));
-		kstat_read(priv->ctl, sd, &io);
+		if (kstat_read(priv->ctl, sd, &io) < 0) {
+			free(prod);
+			free(serial);
+			continue;
+		}
 
 		metric_update(priv->rtime, sd->ks_name, prod, serial, io.rtime);
 		metric_update(priv->wtime, sd->ks_name, prod, serial, io.wtime);
@@ -240,7 +328,8 @@ kstat_collect(void *modpriv)
 		if (strcmp(sd->ks_class, "disk") != 0)
 			continue;
 		bzero(&io, sizeof (io));
-		kstat_read(priv->ctl, sd, &io);
+		if (kstat_read(priv->ctl, sd, &io) < 0)
+			continue;
 
 		metric_update(priv->rtime, sd->ks_name, NULL, NULL, io.rtime);
 		metric_update(priv->wtime, sd->ks_name, NULL, NULL, io.wtime);
@@ -265,7 +354,8 @@ kstat_collect(void *modpriv)
 		if (sd->ks_type != KSTAT_TYPE_NAMED)
 			continue;
 
-		kstat_read(priv->ctl, sd, NULL);
+		if (kstat_read(priv->ctl, sd, NULL) < 0)
+			continue;
 
 		dp = kstat_data_lookup(sd, "zonename");
 		if (dp == NULL)
@@ -324,7 +414,8 @@ kstat_collect(void *modpriv)
 		if (sd->ks_type != KSTAT_TYPE_NAMED)
 			continue;
 
-		kstat_read(priv->ctl, sd, NULL);
+		if (kstat_read(priv->ctl, sd, NULL) < 0)
+			continue;
 
 		dp = kstat_data_lookup(sd, "zonename");
 		if (dp != NULL &&
@@ -413,7 +504,8 @@ kstat_collect(void *modpriv)
 		if (sd->ks_type != KSTAT_TYPE_NAMED)
 			continue;
 
-		kstat_read(priv->ctl, sd, NULL);
+		if (kstat_read(priv->ctl, sd, NULL) < 0)
+			continue;
 
 		metric_inc(priv->ncpus);
 
@@ -452,7 +544,8 @@ kstat_collect(void *modpriv)
 		if (sd->ks_type != KSTAT_TYPE_NAMED)
 			continue;
 
-		kstat_read(priv->ctl, sd, NULL);
+		if (kstat_read(priv->ctl, sd, NULL) < 0)
+			continue;
 
 		dp = kstat_data_lookup(sd, "calls");
 		if (dp == NULL)
@@ -461,6 +554,41 @@ kstat_collect(void *modpriv)
 		    dp->value.ui64);
 	}
 
+	sd = kstat_lookup(priv->ctl, "zfs", 0, "arcstats");
+	if (sd != NULL && sd->ks_type == KSTAT_TYPE_NAMED &&
+	    kstat_read(priv->ctl, sd, NULL) >= 0) {
+		dp = kstat_data_lookup(sd, "hits");
+		if (dp != NULL)
+			metric_update(priv->arc_hits, dp->value.ui64);
+		dp = kstat_data_lookup(sd, "misses");
+		if (dp != NULL)
+			metric_update(priv->arc_misses, dp->value.ui64);
+		dp = kstat_data_lookup(sd, "size");
+		if (dp != NULL)
+			metric_update(priv->arc_size, dp->value.ui64);
+		dp = kstat_data_lookup(sd, "l2_hits");
+		if (dp != NULL)
+			metric_update(priv->arc_l2_hits, dp->value.ui64);
+		dp = kstat_data_lookup(sd, "l2_misses");
+		if (dp != NULL)
+			metric_update(priv->arc_l2_misses, dp->value.ui64);
+		dp = kstat_data_lookup(sd, "l2_size");
+		if (dp != NULL)
+			metric_update(priv->arc_l2_size, dp->value.ui64);
+	}
+
+	sd = kstat_lookup(priv->ctl, "unix", 0, "vminfo");
+	if (sd != NULL && sd->ks_type == KSTAT_TYPE_RAW &&
+	    kstat_read(priv->ctl, sd, NULL) >= 0) {
+		if (sd->ks_data_size >= sizeof (vminfo_t)) {
+			const vminfo_t *vmi = (const vminfo_t *)sd->ks_data;
+
+			metric_update(priv->swap_resv, vmi->swap_resv);
+			metric_update(priv->swap_alloc, vmi->swap_alloc);
+			metric_update(priv->swap_avail, vmi->swap_avail);
+			metric_update(priv->swap_free, vmi->swap_free);
+		}
+	}
 
 	return (0);
 }

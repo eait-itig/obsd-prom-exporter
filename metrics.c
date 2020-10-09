@@ -50,9 +50,10 @@
 const uint64_t MAX_COUNTER_MASK = (1ULL << 53) - 1;
 
 
-extern struct metrics_module_ops collect_kstat_ops;
+extern struct metrics_module_ops collect_kstat_ops, collect_proc_ops;
 static struct metrics_module_ops *modops[] = {
 	&collect_kstat_ops,
+	&collect_proc_ops,
 	NULL
 };
 
