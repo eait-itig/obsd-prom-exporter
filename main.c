@@ -34,6 +34,7 @@
 #include <errno.h>
 #include <poll.h>
 #include <time.h>
+#include <signal.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -194,6 +195,8 @@ main(int argc, char *argv[])
 	npfds = 64;
 	pfds = calloc(64, sizeof (struct pollfd));
 	upfds = 0;
+
+	signal(SIGPIPE, SIG_IGN);
 
 	lsock = socket(AF_INET, SOCK_STREAM, 0);
 	if (lsock < 0)
