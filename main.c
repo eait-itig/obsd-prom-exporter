@@ -441,7 +441,7 @@ on_message_complete(http_parser *parser)
 	}
 
 	if (stats_buf == NULL) {
-		stats_buf_sz = 128*1024;
+		stats_buf_sz = 256*1024;
 		stats_buf = malloc(stats_buf_sz);
 	}
 	if (stats_buf == NULL) {
