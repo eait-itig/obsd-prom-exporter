@@ -28,6 +28,9 @@
 #if !defined(_LOG_H)
 #define _LOG_H
 
+#include <stdarg.h>
+#include <stdint.h>
+
 enum exit_status {
 	EXIT_USAGE = 1,
 	EXIT_SOCKERR = 2,
@@ -35,6 +38,9 @@ enum exit_status {
 	EXIT_ERROR = 4
 };
 
+void vtslog(const char *fmt, int eno, va_list ap);
+void tserr(int status, const char *fmt, ...);
+void tserrx(int status, const char *fmt, ...);
 void tslog(const char *fmt, ...);
 
 #endif /* _LOG_H */

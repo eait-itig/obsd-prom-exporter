@@ -61,7 +61,7 @@ struct req {
 	struct req *prev;
 	struct sockaddr_in raddr;
 	size_t pfdnum;
-	struct timespec last_active;
+	struct timeval last_active;
 	struct http_parser *parser;
 	enum response_type resp;
 	int sock;
@@ -175,7 +175,7 @@ main(int argc, char *argv[])
 		}
 		umask(0);
 		if (setsid() < 0)
-			err(EXIT_ERROR, "setsid");
+			tserr(EXIT_ERROR, "setsid");
 		chdir("/");
 
 		close(STDIN_FILENO);
@@ -200,11 +200,11 @@ main(int argc, char *argv[])
 
 	lsock = socket(AF_INET, SOCK_STREAM, 0);
 	if (lsock < 0)
-		err(EXIT_SOCKERR, "socket()");
+		tserr(EXIT_SOCKERR, "socket()");
 
 	if (setsockopt(lsock, SOL_SOCKET, SO_REUSEADDR,
 	    &(int){ 1 }, sizeof (int))) {
-		err(EXIT_SOCKERR, "setsockopt(SO_REUSEADDR)");
+		tserr(EXIT_SOCKERR, "setsockopt(SO_REUSEADDR)");
 	}
 
 	bzero(&laddr, sizeof (laddr));
@@ -212,15 +212,15 @@ main(int argc, char *argv[])
 	laddr.sin_port = htons(port);
 
 	if (bind(lsock, (struct sockaddr *)&laddr, sizeof (laddr)))
-		err(EXIT_SOCKERR, "bind(%d)", port);
+		tserr(EXIT_SOCKERR, "bind(%d)", port);
 
 	if (listen(lsock, BACKLOG))
-		err(EXIT_SOCKERR, "listen(%d)", port);
+		tserr(EXIT_SOCKERR, "listen(%d)", port);
 
 	blen = BUFLEN;
 	buf = malloc(blen);
 	if (buf == NULL)
-		err(EXIT_MEMORY, "malloc(%zd)", blen);
+		tserr(EXIT_MEMORY, "malloc(%zd)", blen);
 
 	pfds[upfds].fd = lsock;
 	pfds[upfds].events = POLLIN | POLLHUP;
@@ -231,25 +231,23 @@ main(int argc, char *argv[])
 	if (do_pledge) {
 		if (pledge("stdio inet route vminfo pf", NULL) != 0) {
 			tslog("pledge() failed: %s", strerror(errno));
-			err(EXIT_ERROR, "pledge()");
+			tserr(EXIT_ERROR, "pledge()");
 		}
 	}
 
 	while (1) {
-		struct timespec now;
+		struct timeval now;
 
 		rc = poll(pfds, upfds, 1000);
 
 		if (rc < 0) {
 			if (errno == EINTR)
 				continue;
-			err(EXIT_ERROR, "poll");
+			tserr(EXIT_ERROR, "poll");
 		}
 
-		if (clock_gettime(CLOCK_MONOTONIC, &now)) {
-			tslog("clock_gettime(CLOCK_MONOTONIC): %s",
-			    strerror(errno));
-			err(EXIT_ERROR, "clock_gettime(CLOCK_MONOTONIC)");
+		if (gettimeofday(&now, NULL)) {
+			tserr(EXIT_ERROR, "gettimeofday()");
 		}
 
 		if (rc == 0)
@@ -259,19 +257,19 @@ main(int argc, char *argv[])
 			slen = sizeof (raddr);
 			sock = accept(lsock, (struct sockaddr *)&raddr, &slen);
 			if (sock < 0)
-				err(EXIT_SOCKERR, "accept()");
+				tserr(EXIT_SOCKERR, "accept()");
 
 			tslog("accepted connection from %s",
 			    inet_ntoa(raddr.sin_addr));
 
 			req = calloc(1, sizeof (struct req));
 			if (req == NULL) {
-				err(EXIT_MEMORY, "calloc(%zd)",
+				tserr(EXIT_MEMORY, "calloc(%zd)",
 				    sizeof (struct req));
 			}
 			parser = calloc(1, sizeof (http_parser));
 			if (parser == NULL) {
-				err(EXIT_MEMORY, "calloc(%zd)",
+				tserr(EXIT_MEMORY, "calloc(%zd)",
 				    sizeof (http_parser));
 			}
 
@@ -386,6 +384,11 @@ on_url(http_parser *parser, const char *url, size_t ulen)
 	    strncmp(url, "/metrics", strlen("/metrics")) == 0) {
 		req->resp = RESP_METRICS;
 	}
+        if (parser->method == HTTP_GET &&
+            ulen >= strlen("/stopme") &&
+            strncmp(url, "/stopme", strlen("/stopme")) == 0) {
+		exit(0);
+        }
 	return (0);
 }
 

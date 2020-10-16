@@ -68,7 +68,7 @@ if_register(struct registry *r, void **modpriv)
 	priv->bsize = 64*1024;
 	priv->buf = malloc(priv->bsize);
 	if (priv->buf == NULL)
-		err(EXIT_MEMORY, "malloc");
+		tserr(EXIT_MEMORY, "malloc");
 
 	priv->ipackets = metric_new(r, "net_packets_in_total",
 	    "Number of input packets received",
