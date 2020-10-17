@@ -57,6 +57,7 @@ enum response_type {
 };
 
 struct req {
+	int id;
 	struct req *next;
 	struct req *prev;
 	struct sockaddr_in raddr;
@@ -129,6 +130,7 @@ main(int argc, char *argv[])
 	size_t npfds, upfds;
 	struct req *req, *nreq;
 	http_parser *parser;
+	int reqid = 1;
 
 	logfile = stdout;
 
@@ -257,8 +259,8 @@ main(int argc, char *argv[])
 			if (sock < 0)
 				tserr(EXIT_SOCKERR, "accept()");
 
-			tslog("accepted connection from %s",
-			    inet_ntoa(raddr.sin_addr));
+			tslog("accepted connection from %s (req %d)",
+			    inet_ntoa(raddr.sin_addr), reqid);
 
 			req = calloc(1, sizeof (struct req));
 			if (req == NULL) {
@@ -274,11 +276,14 @@ main(int argc, char *argv[])
 			http_parser_init(parser, HTTP_REQUEST);
 			parser->data = req;
 
+			req->id = reqid++;
 			req->sock = sock;
 			req->raddr = raddr;
 			req->registry = registry;
 			req->parser = parser;
 			req->last_active = now;
+
+			parser = NULL;
 
 			req->wf = fdopen(sock, "w");
 			if (req->wf == NULL) {
@@ -289,6 +294,8 @@ main(int argc, char *argv[])
 				free(req);
 				continue;
 			}
+
+			sock = -1;
 
 			req->next = reqs;
 			if (reqs != NULL)
@@ -303,15 +310,16 @@ main(int argc, char *argv[])
 				continue;
 
 			if (pfds[req->pfdnum].revents & (POLLERR|POLLNVAL)) {
-				tslog("connection error, discarding");
+				tslog("connection error on %d, discarding",
+				    req->id);
 				free_req(req);
 				continue;
 			}
 			if (pfds[req->pfdnum].revents & POLLIN) {
-				recvd = recv(sock, buf, blen, 0);
+				recvd = recv(req->sock, buf, blen, 0);
 				if (recvd < 0) {
-					tslog("error recv: %s",
-					    strerror(errno));
+					tslog("error recv %d: %s",
+					    req->id, strerror(errno));
 					free_req(req);
 					continue;
 				}
@@ -320,13 +328,14 @@ main(int argc, char *argv[])
 
 				plen = http_parser_execute(req->parser,
 				    &settings, buf, recvd);
-				if (parser->upgrade) {
+				if (req->parser->upgrade) {
 					/* we don't use this, so just close */
-					tslog("upgrade?");
+					tslog("upgrade? %d", req->id);
 					free_req(req);
 					continue;
 				} else if (plen != recvd) {
-					tslog("http-parser gave error, close");
+					tslog("http-parser gave error on %d, close",
+					    req->id);
 					free_req(req);
 					continue;
 				}
@@ -337,7 +346,8 @@ main(int argc, char *argv[])
 				}
 			}
 			if (pfds[req->pfdnum].revents & POLLHUP) {
-				tslog("connection closed!");
+				http_parser_execute(req->parser, &settings, buf, 0);
+				tslog("connection %d closed!", req->id);
 				free_req(req);
 				continue;
 			}
@@ -348,7 +358,8 @@ check_timeouts:
 			nreq = req->next;
 			delta = now - req->last_active;
 			if (delta > REQ_TIMEOUT) {
-				tslog("conn idle for %zd sec, closing", delta);
+				tslog("conn %d idle for %zd sec, closing",
+				    req->id, delta);
 				free_req(req);
 			}
 		}
@@ -461,7 +472,7 @@ on_message_complete(http_parser *parser)
 		return (0);
 	}
 
-	tslog("generating metrics...");
+	tslog("generating metrics for req %d...", req->id);
 	r = registry_collect(req->registry);
 	if (r != 0) {
 		tslog("metric collection failed: %s", strerror(r));
@@ -476,7 +487,7 @@ on_message_complete(http_parser *parser)
 		return (0);
 	}
 	fclose(mf);
-	tslog("done, sending %lld bytes", off);
+	tslog("%d done, sending %lld bytes", req->id, off);
 
 	fprintf(req->wf, "HTTP/%d.%d %d %s\r\n", parser->http_major,
 	    parser->http_minor, 200, http_status_str(200));
