@@ -61,7 +61,7 @@ struct req {
 	struct req *prev;
 	struct sockaddr_in raddr;
 	size_t pfdnum;
-	struct timeval last_active;
+	time_t last_active;
 	struct http_parser *parser;
 	enum response_type resp;
 	int sock;
@@ -236,7 +236,7 @@ main(int argc, char *argv[])
 	}
 
 	while (1) {
-		struct timeval now;
+		time_t now;
 
 		rc = poll(pfds, upfds, 1000);
 
@@ -246,9 +246,7 @@ main(int argc, char *argv[])
 			tserr(EXIT_ERROR, "poll");
 		}
 
-		if (gettimeofday(&now, NULL)) {
-			tserr(EXIT_ERROR, "gettimeofday()");
-		}
+		now = time(NULL);
 
 		if (rc == 0)
 			goto check_timeouts;
@@ -304,8 +302,8 @@ main(int argc, char *argv[])
 			if (req->pfdnum == 0)
 				continue;
 
-			if (pfds[req->pfdnum].revents & POLLHUP) {
-				tslog("connection closed!");
+			if (pfds[req->pfdnum].revents & (POLLERR|POLLNVAL)) {
+				tslog("connection error, discarding");
 				free_req(req);
 				continue;
 			}
@@ -338,12 +336,17 @@ main(int argc, char *argv[])
 					continue;
 				}
 			}
+			if (pfds[req->pfdnum].revents & POLLHUP) {
+				tslog("connection closed!");
+				free_req(req);
+				continue;
+			}
 		}
 check_timeouts:
 		for (req = reqs; req != NULL; req = nreq) {
 			size_t delta;
 			nreq = req->next;
-			delta = now.tv_sec - req->last_active.tv_sec;
+			delta = now - req->last_active;
 			if (delta > REQ_TIMEOUT) {
 				tslog("conn idle for %zd sec, closing", delta);
 				free_req(req);
@@ -353,6 +356,7 @@ check_timeouts:
 		upfds = 0;
 		pfds[upfds].fd = lsock;
 		pfds[upfds].events = POLLIN | POLLHUP;
+		pfds[upfds].revents = 0;
 		++upfds;
 
 		for (req = reqs; req != NULL && upfds < npfds; req = nreq) {
@@ -361,6 +365,7 @@ check_timeouts:
 			req->pfdnum = upfds;
 			pfds[upfds].fd = req->sock;
 			pfds[upfds].events = POLLIN | POLLHUP;
+			pfds[upfds].revents = 0;
 			++upfds;
 		}
 	}
