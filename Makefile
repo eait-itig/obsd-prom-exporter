@@ -23,39 +23,34 @@
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-OBJS	= \
-	http-parser/http_parser.o \
-	log.o \
-	metrics.o \
-	collect_pf.o \
-	collect_cpu.o \
-	collect_if.o \
-	collect_uvm.o \
-	collect_pools.o \
-	collect_procs.o \
-	collect_disk.o \
-	main.o
+.PATH:		${.CURDIR}/http-parser
 
-CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
-	   -fwrapv -fPIC -Wall
+PROG=		obsd-prom-exporter
+MAN=
 
-.PHONY: all
-all: obsd-prom-exporter
+BINDIR=		/usr/local/bin
 
-.PHONY: clean
-clean:
-	rm -f obsd-prom-exporter $(OBJS)
+SRCS=		main.c log.c metrics.c
+SRCS+=		http_parser.c
 
-.SUFFIXES: .c .o
-.c.o:
-	$(CC) -c -o $@ $(CFLAGS) $<
+SRCS+=		collect_pf.c
+SRCS+=		collect_cpu.c
+SRCS+=		collect_if.c
+SRCS+=		collect_uvm.c
+SRCS+=		collect_pools.c
+SRCS+=		collect_procs.c
+SRCS+=		collect_disk.c
 
-obsd-prom-exporter: $(OBJS)
-	$(CC) $(LDFLAGS) $(LIBS) -o $@ $(OBJS)
+CFLAGS+=	-fno-strict-aliasing -fstack-protector-all -Werror \
+		    -fwrapv -fPIC -Wall
 
-.PHONY: install
-install: all
-	install -o root -g bin -m 0755 obsd-prom-exporter /usr/local/bin/
-	install -o root -g wheel -m 0755 rc.d/promexporter /etc/rc.d/
-	#groupadd _promexp
-	#useradd -g _promexp _promexp
+installids:
+	groupadd _promexp
+	useradd -g _promexp _promexp
+
+afterinstall:
+	${INSTALL} ${INSTALL_COPY} \
+	    -o ${BINOWN} -g ${BINGRP} \
+	    -m ${BINMODE} ${.CURDIR}/rc.d/promexporter /etc/rc.d/
+
+.include <bsd.prog.mk>
