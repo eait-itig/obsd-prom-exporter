@@ -256,8 +256,20 @@ main(int argc, char *argv[])
 		if (pfds[0].revents & POLLIN) {
 			slen = sizeof (raddr);
 			sock = accept(lsock, (struct sockaddr *)&raddr, &slen);
-			if (sock < 0)
-				tserr(EXIT_SOCKERR, "accept()");
+			if (sock < 0) {
+				switch (errno) {
+				case ECONNABORTED:
+				case ECONNRESET:
+					tslog("failed to accept connection "
+					    "from %s: %d (%s)",
+					    inet_ntoa(raddr.sin_addr),
+					    errno, strerror(errno));
+					break;
+				default:
+					tserr(EXIT_SOCKERR, "accept()");
+				}
+				goto check_pfds;
+			}
 
 			tslog("accepted connection from %s (req %d)",
 			    inet_ntoa(raddr.sin_addr), reqid);
@@ -303,6 +315,7 @@ main(int argc, char *argv[])
 			reqs = req;
 		}
 
+check_pfds:
 		for (req = reqs; req != NULL; req = nreq) {
 			nreq = req->next;
 
@@ -334,8 +347,8 @@ main(int argc, char *argv[])
 					free_req(req);
 					continue;
 				} else if (plen != recvd) {
-					tslog("http-parser gave error on %d, close",
-					    req->id);
+					tslog("http-parser gave error on %d, "
+					    "close", req->id);
 					free_req(req);
 					continue;
 				}
@@ -346,7 +359,8 @@ main(int argc, char *argv[])
 				}
 			}
 			if (pfds[req->pfdnum].revents & POLLHUP) {
-				http_parser_execute(req->parser, &settings, buf, 0);
+				http_parser_execute(req->parser, &settings,
+				    buf, 0);
 				tslog("connection %d closed!", req->id);
 				free_req(req);
 				continue;
