@@ -34,10 +34,11 @@
 #include <string.h>
 #include <err.h>
 #include <inttypes.h>
+#include <stddef.h>
 
 #include <sys/types.h>
-#include <sys/tree.h>
-#include <sys/queue.h>
+#include <sys/list.h>
+#include <sys/avl.h>
 
 #include "log.h"
 #include "metrics.h"
@@ -81,8 +82,8 @@ struct metric {
 	enum metric_type type;
 	enum metric_val_type val_type;
 	struct label *labels;
-	RB_HEAD(mvaltree, metric_val) values;
-	LIST_HEAD(mvallist, metric_val) old_values;
+	avl_tree_t values;
+	list_t old_values;
 
 	void *priv;
 	struct metric_ops ops;
@@ -107,8 +108,8 @@ struct label_val {
 };
 
 struct metric_val {
-	RB_ENTRY(metric_val) entry;
-	LIST_ENTRY(metric_val) lentry;
+	avl_node_t entry;
+	list_node_t lentry;
 
 	int updated;
 
@@ -128,6 +129,7 @@ static int
 compare_label_val(const struct label_val *a, const struct label_val *b)
 {
 	double delta;
+	int stc;
 	if (a->label != b->label)
 		errx(EXIT_ERROR, "invalid label chain comparison");
 	switch (a->label->val_type) {
@@ -138,7 +140,12 @@ compare_label_val(const struct label_val *a, const struct label_val *b)
 			return (1);
 		if (a->val_string == b->val_string)
 			return (0);
-		return (strcmp(a->val_string, b->val_string));
+		stc = strcmp(a->val_string, b->val_string);
+		if (stc < 0)
+			return (-1);
+		if (stc > 0)
+			return (1);
+		return (0);
 	case METRIC_VAL_UINT64:
 		if (a->val_uint64 < b->val_uint64)
 			return (-1);
@@ -180,17 +187,18 @@ compare_label_vals(const struct label_val *a, const struct label_val *b)
 }
 
 static int
-compare_metric_vals(const struct metric_val *a, const struct metric_val *b)
+compare_metric_vals(const void *x, const void *y)
 {
+	const struct metric_val *a = x, *b = y;
 	if (a->metric != b->metric) {
 		const int namecmp = strcmp(a->metric->name, b->metric->name);
-		if (namecmp != 0)
-			return (namecmp);
+		if (namecmp < 0)
+			return (-1);
+		if (namecmp > 0)
+			return (1);
 	}
 	return (compare_label_vals(a->labels, b->labels));
 }
-
-RB_GENERATE_STATIC(mvaltree, metric_val, entry, compare_metric_vals);
 
 static void
 free_label(struct label *l)
@@ -234,12 +242,12 @@ void
 metric_clear(struct metric *m)
 {
 	struct metric_val *v, *nv;
-	v = RB_MIN(mvaltree, &m->values);
+	v = avl_first(&m->values);
 	while (v != NULL) {
-		nv = RB_NEXT(mvaltree, &m->values, v);
-		RB_REMOVE(mvaltree, &m->values, v);
+		nv = AVL_NEXT(&m->values, v);
+		avl_remove(&m->values, v);
 		if (v->updated == 0)
-			LIST_REMOVE(v, lentry);
+			list_remove(&m->old_values, v);
 		free_metric_val(v);
 		v = nv;
 	}
@@ -294,8 +302,12 @@ metric_new(struct registry *r, const char *name, const char *help,
 	m->val_type = vtype;
 	m->owner = r;
 
-	RB_INIT(&m->values);
-	LIST_INIT(&m->old_values);
+	avl_create(&m->values, compare_metric_vals,
+	    sizeof (struct metric_val),
+	    offsetof(struct metric_val, entry));
+	list_create(&m->old_values,
+	    sizeof (struct metric_val),
+	    offsetof(struct metric_val, lentry));
 
 	m->priv = priv;
 	m->ops = *ops;
@@ -387,7 +399,7 @@ metric_push(struct metric *m, ...)
 	}
 	va_end(va);
 
-	RB_INSERT(mvaltree, &m->values, mv);
+	avl_add(&m->values, mv);
 
 	return (0);
 }
@@ -397,6 +409,7 @@ metric_inc(struct metric *m, ...)
 {
 	struct metric_val *mv, *omv;
 	va_list va;
+	avl_index_t idx;
 
 	mv = calloc(1, sizeof (struct metric_val));
 	mv->metric = m;
@@ -419,10 +432,10 @@ metric_inc(struct metric *m, ...)
 	}
 	va_end(va);
 
-	omv = RB_FIND(mvaltree, &m->values, mv);
+	omv = avl_find(&m->values, mv, &idx);
 	if (omv != NULL) {
 		if (omv->updated == 0) {
-			LIST_REMOVE(omv, lentry);
+			list_remove(&omv->metric->old_values, omv);
 			omv->updated = 1;
 		}
 		switch (m->val_type) {
@@ -442,7 +455,7 @@ metric_inc(struct metric *m, ...)
 		return (0);
 	}
 
-	RB_INSERT(mvaltree, &m->values, mv);
+	avl_insert(&m->values, mv, idx);
 
 	return (0);
 }
@@ -452,6 +465,7 @@ metric_inc_by(struct metric *m, ...)
 {
 	struct metric_val *mv, *omv;
 	va_list va;
+	avl_index_t idx;
 
 	mv = calloc(1, sizeof (struct metric_val));
 	mv->metric = m;
@@ -474,31 +488,30 @@ metric_inc_by(struct metric *m, ...)
 	}
 	va_end(va);
 
-	omv = m->values;
-	while (omv != NULL) {
-		if (compare_label_vals(mv->labels, omv->labels) == 0) {
+	omv = avl_find(&m->values, mv, &idx);
+	if (omv != NULL) {
+		if (omv->updated == 0) {
+			list_remove(&omv->metric->old_values, omv);
 			omv->updated = 1;
-			switch (m->val_type) {
-			case METRIC_VAL_INT64:
-				omv->val_int64 += mv->val_int64;
-				break;
-			case METRIC_VAL_UINT64:
-				omv->val_uint64 += mv->val_uint64;
-				break;
-			case METRIC_VAL_DOUBLE:
-				omv->val_double += mv->val_double;
-				break;
-			case METRIC_VAL_STRING:
-				return (EINVAL);
-			}
-			free_metric_val(mv);
-			return (0);
 		}
-		omv = omv->next;
+		switch (m->val_type) {
+		case METRIC_VAL_INT64:
+			omv->val_int64 += mv->val_int64;
+			break;
+		case METRIC_VAL_UINT64:
+			omv->val_uint64 += mv->val_uint64;
+			break;
+		case METRIC_VAL_DOUBLE:
+			omv->val_double += mv->val_double;
+			break;
+		case METRIC_VAL_STRING:
+			return (EINVAL);
+		}
+		free_metric_val(mv);
+		return (0);
 	}
 
-	mv->next = m->values;
-	m->values = mv;
+	avl_insert(&m->values, mv, idx);
 
 	return (0);
 }
@@ -507,10 +520,10 @@ int
 metric_update(struct metric *m, ...)
 {
 	struct metric_val *mv;
-	struct metric_val *tmp;
 	struct metric_val *omv;
 	struct registry *r;
 	va_list va;
+	avl_index_t idx;
 
 	r = m->owner;
 	if (r->tmp == NULL)
@@ -539,10 +552,10 @@ metric_update(struct metric *m, ...)
 	}
 	va_end(va);
 
-	omv = RB_FIND(mvaltree, &m->values, mv);
+	omv = avl_find(&m->values, mv, &idx);
 	if (omv != NULL) {
 		if (omv->updated == 0) {
-			LIST_REMOVE(omv, lentry);
+			list_remove(&omv->metric->old_values, omv);
 			omv->updated = 1;
 		}
 		switch (m->val_type) {
@@ -564,9 +577,8 @@ metric_update(struct metric *m, ...)
 		return (0);
 	}
 
-	tmp = malloc(sizeof (struct metric_val));
-	bcopy(mv, tmp, sizeof (struct metric_val));
-	RB_INSERT(mvaltree, &m->values, tmp);
+	r->tmp = NULL;
+	avl_insert(&m->values, mv, idx);
 
 	return (0);
 }
@@ -645,10 +657,10 @@ print_metric(FILE *f, const struct metric *m)
 	}
 	fprintf(f, "# TYPE %s %s\n", m->name, type);
 
-	mv = RB_MIN(mvaltree, (struct mvaltree *)&m->values);
+	mv = avl_first((avl_tree_t *)&m->values);
 	while (mv != NULL) {
 		print_metric_val(f, mv);
-		mv = RB_NEXT(mvaltree, (struct mvaltree *)&m->values,
+		mv = AVL_NEXT((avl_tree_t *)&m->values,
 		    (struct metric_val *)mv);
 	}
 }
@@ -733,11 +745,11 @@ registry_collect(struct registry *r)
 
 	m = r->metrics;
 	while (m != NULL) {
-		mv = RB_MIN(mvaltree, &m->values);
+		mv = avl_first(&m->values);
 		while (mv != NULL) {
 			mv->updated = 0;
-			LIST_INSERT_HEAD(&m->old_values, mv, lentry);
-			mv = RB_NEXT(mvaltree, &m->values, mv);
+			list_insert_head(&m->old_values, mv);
+			mv = AVL_NEXT(&m->values, mv);
 		}
 		m = m->next;
 	}
@@ -769,10 +781,9 @@ void
 metric_clear_old_values(struct metric *m)
 {
 	struct metric_val *mv;
-	while (!LIST_EMPTY(&m->old_values)) {
-		mv = LIST_FIRST(&m->old_values);
-		LIST_REMOVE(mv, lentry);
-		RB_REMOVE(mvaltree, &m->values, mv);
+	while (!list_is_empty(&m->old_values)) {
+		mv = list_remove_head(&m->old_values);
+		avl_remove(&m->values, mv);
 		free_metric_val(mv);
 	}
 }

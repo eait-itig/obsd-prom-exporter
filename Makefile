@@ -34,7 +34,7 @@ OBJS	= \
 
 CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
 	   -fwrapv -fPIC -Wall -m64 -msave-args -gdwarf-2
-LDFLAGS += -m64 -lnsl -lsocket -lkstat -lssp -lsendfile -lproc -lnvpair -lzfs
+LDFLAGS += -m64 -lnsl -lsocket -lkstat -lssp -lsendfile -lproc -lnvpair -lzfs -lavl -lcmdutils
 
 .PHONY: all
 all: prom-exporter
