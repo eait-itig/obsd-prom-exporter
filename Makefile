@@ -29,27 +29,30 @@ OBJS	= \
 	metrics.o \
 	collect_kstat.o \
 	collect_proc.o \
-	collect_zfs.o \
-	main.o
+	collect_zfs.o
 
 CFLAGS 	+= -fno-strict-aliasing -fstack-protector-all -Werror \
 	   -fwrapv -fPIC -Wall -m64 -msave-args -gdwarf-2
 LDFLAGS += -m64 -lnsl -lsocket -lkstat -lssp -lsendfile -lproc -lnvpair -lzfs -lavl -lcmdutils
 
 .PHONY: all
-all: prom-exporter
+all: prom-exporter prom-plugin
 
 .PHONY: clean
 clean:
-	rm -f prom-exporter $(OBJS)
+	rm -f prom-exporter prom-plugin $(OBJS)
 
 .SUFFIXES: .c .o
 .c.o:
 	$(CC) -c -o $@ $(CFLAGS) $<
 
-prom-exporter: $(OBJS)
-	$(CC) $(LDFLAGS) $(LIBS) -o $@ $(OBJS)
+prom-exporter: $(OBJS) main.o
+	$(CC) $(LDFLAGS) $(LIBS) -o $@ $(OBJS) main.o
 	ctfconvert prom-exporter
+
+prom-plugin: $(OBJS) plugin_main.o
+	$(CC) $(LDFLAGS) $(LIBS) -o $@ $(OBJS) plugin_main.o
+	ctfconvert prom-plugin
 
 .PHONY: install
 install: all

@@ -1,3 +1,4 @@
 *.o
 http-parser/*.o
 /prom-exporter
+/prom-plugin
