@@ -79,16 +79,11 @@ static int
 pool_walker(zpool_handle_t *phdl, void *arg)
 {
 	struct zfs_modpriv *priv = (struct zfs_modpriv *)arg;
-	int r;
 	nvlist_t *config, *root, **vdevs;
-	boolean_t missing = B_FALSE;
 	uint_t c, kids, i;
-	const char *name, *vname, *type;
+	const char *name, *type;
+	char *vname;
 	vdev_stat_t *vstat;
-
-	r = zpool_refresh_stats(phdl, &missing);
-	if (r != 0 || missing)
-		return (0);
 
 	name = zpool_get_name(phdl);
 	config = zpool_get_config(phdl, NULL);
@@ -113,7 +108,10 @@ pool_walker(zpool_handle_t *phdl, void *arg)
 		vname = zpool_vdev_name(priv->hdl, phdl, vdevs[i], 1);
 		metric_update(priv->vdev_alloc, name, vname, type, vstat->vs_alloc);
 		metric_update(priv->vdev_cap, name, vname, type, vstat->vs_space);
+		free(vname);
 	}
+
+	zpool_close(phdl);
 
 	return (0);
 }
