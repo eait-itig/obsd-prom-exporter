@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <inttypes.h>
 #include <errno.h>
 #include <err.h>
 #include <sys/types.h>
@@ -85,7 +86,7 @@ cpu_collect(void *modpriv)
 		size_t size = sizeof(cs);
 
 		if (sysctl(mib, 3, &cs, &size, NULL, 0) == -1) {
-			tslog("failed to get cpu%d stats: %s", i,
+			tslog("failed to get cpu%" PRIu64 " stats: %s", i,
 			    strerror(errno));
 			continue;
 		}
