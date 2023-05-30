@@ -10,6 +10,12 @@
     <dependency name='filesystem-local' grouping='require_all' restart_on='none' type='service'>
       <service_fmri value='svc:/system/filesystem/local:default'/>
     </dependency>
+    <method_context project='prom-exporter'>
+      <method_environment>
+        <envvar name='LD_PRELOAD_64' value='/usr/lib/64/libumem.so.1' />
+        <envvar name='UMEM_OPTIONS' value='backend=mmap' />
+      </method_environment>
+    </method_context>
     <exec_method name='start' type='method' exec='/opt/local/bin/prom-exporter -l %{log_file} -p %{port}' timeout_seconds='60'/>
     <exec_method name='stop' type='method' exec=':kill' timeout_seconds='60'/>
     <property_group name='application' type='application'>
