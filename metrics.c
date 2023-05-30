@@ -150,13 +150,13 @@ compare_label_val(const struct label_val *a, const struct label_val *b)
 		if (a->val_uint64 < b->val_uint64)
 			return (-1);
 		if (a->val_uint64 > b->val_uint64)
-			return (-1);
+			return (1);
 		return (0);
 	case METRIC_VAL_INT64:
 		if (a->val_int64 < b->val_int64)
 			return (-1);
 		if (a->val_int64 > b->val_int64)
-			return (-1);
+			return (1);
 		return (0);
 	case METRIC_VAL_DOUBLE:
 		delta = a->val_double - b->val_double;
