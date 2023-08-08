@@ -187,6 +187,7 @@ kstat_register(struct registry *r, void **modpriv)
 	priv->cpu_time = metric_new(r, "cpu_time_spent_nsec_total",
 	    "Total time spent in different CPU states",
 	    METRIC_COUNTER, METRIC_VAL_UINT64, NULL, &kstat_metric_ops,
+	    metric_label_new("cpu", METRIC_VAL_UINT64),
 	    metric_label_new("state", METRIC_VAL_STRING),
 	    NULL);
 	priv->ncpus = metric_new(r, "cpu_count",
@@ -512,27 +513,32 @@ kstat_collect(void *modpriv)
 		dp = kstat_data_lookup(sd, "cpu_nsec_dtrace");
 		if (dp == NULL)
 			continue;
-		metric_inc_by(priv->cpu_time, "dtrace", dp->value.ui64);
+		metric_update(priv->cpu_time, (uint64_t)sd->ks_instance,
+		    "dtrace", dp->value.ui64);
 
 		dp = kstat_data_lookup(sd, "cpu_nsec_intr");
 		if (dp == NULL)
 			continue;
-		metric_inc_by(priv->cpu_time, "intr", dp->value.ui64);
+		metric_update(priv->cpu_time, (uint64_t)sd->ks_instance,
+		    "intr", dp->value.ui64);
 
 		dp = kstat_data_lookup(sd, "cpu_nsec_idle");
 		if (dp == NULL)
 			continue;
-		metric_inc_by(priv->cpu_time, "idle", dp->value.ui64);
+		metric_update(priv->cpu_time, (uint64_t)sd->ks_instance,
+		    "idle", dp->value.ui64);
 
 		dp = kstat_data_lookup(sd, "cpu_nsec_kernel");
 		if (dp == NULL)
 			continue;
-		metric_inc_by(priv->cpu_time, "kernel", dp->value.ui64);
+		metric_update(priv->cpu_time, (uint64_t)sd->ks_instance,
+		    "kernel", dp->value.ui64);
 
 		dp = kstat_data_lookup(sd, "cpu_nsec_user");
 		if (dp == NULL)
 			continue;
-		metric_inc_by(priv->cpu_time, "user", dp->value.ui64);
+		metric_update(priv->cpu_time, (uint64_t)sd->ks_instance,
+		    "user", dp->value.ui64);
 	}
 
 	sd = kstat_lookup(priv->ctl, "nfs", -1, NULL);
