@@ -336,6 +336,21 @@ check_pfds:
 					free_req(req);
 					continue;
 				}
+				if (recvd == 0) {
+					/*
+					 * client has closed the connection.
+					 * technically we should tell the
+					 * parser about this so it can tell
+					 * if this is the end of a http
+					 * request, but there's no
+					 * reason for us to do that
+					 * because we're only generating
+					 * a reply, and there's now no
+					 * client to give it to.
+					 */
+					free_req(req);
+					continue;
+				}
 
 				req->last_active = now;
 
