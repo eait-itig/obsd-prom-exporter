@@ -1,7 +1,7 @@
 /*
  *
  * Copyright 2026 psergiu
- * Author: Sergiu Partenie
+ * Author: Sergiu Partenie with assistance from locally run LLMs
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
