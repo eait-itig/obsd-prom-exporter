@@ -32,3 +32,4 @@ And in `prometheus.yml`:
  * PF states, state ops, src nodes, limit hits, overload hits, drops (reason)
  * System total files open (current/max), processes running (current/max), thread running (current/max)
  * Kernel memory pool item sizes, allocations, gets/puts/fails, pages, idle
+ * Sensors (all the ones discoverable by sysctl hw.sensors)
