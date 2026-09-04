@@ -1,7 +1,7 @@
 /*
  *
- * Copyright 2026
- * Author: Sergiu Partenie with assistance from locally run LLMs
+ * Copyright 2026 psergiu
+ * Author: Sergiu Partenie
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,8 +45,13 @@
  * in sbin/sysctl/sysctl.c interprets struct sensor values.
  * Labels: device (sensordev xname, e.g. "it0"), sensor (e.g. "temp1"),
  * desc (sensor description, may be empty).
+ *
+ * Metrics are registered lazily on first sight of a sensor of that
+ * type, so machines without a given sensor type emit nothing at all
+ * for it (no bare # HELP / # TYPE lines).
  */
 struct sensors_modpriv {
+	struct registry *reg;
 	struct metric *temp;
 	struct metric *fan;
 	struct metric *volt_dc;
@@ -84,190 +89,391 @@ sensors_register(struct registry *r, void **modpriv)
 
 	priv = calloc(1, sizeof (struct sensors_modpriv));
 	*modpriv = priv;
+	if (priv == NULL)
+		return;
+	priv->reg = r;
+}
 
-	priv->temp = metric_new(r, "sensor_temp_celsius",
-	    "Temperature sensor reading in degrees Celsius (uK -> degC)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_temp(struct sensors_modpriv *priv)
+{
+	if (priv->temp == NULL) {
+		priv->temp = metric_new(priv->reg, "sensor_temp_celsius",
+		    "Temperature sensor reading in degrees Celsius (uK -> degC)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->temp);
+}
 
-	priv->fan = metric_new(r, "sensor_fan_rpm",
-	    "Fan speed sensor reading in RPM",
-	    METRIC_GAUGE, METRIC_VAL_UINT64, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_fan(struct sensors_modpriv *priv)
+{
+	if (priv->fan == NULL) {
+		priv->fan = metric_new(priv->reg, "sensor_fan_rpm",
+		    "Fan speed sensor reading in RPM",
+		    METRIC_GAUGE, METRIC_VAL_UINT64, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->fan);
+}
 
-	priv->volt_dc = metric_new(r, "sensor_voltage_dc_volts",
-	    "DC voltage sensor reading in Volts (uV DC -> V)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_volt_dc(struct sensors_modpriv *priv)
+{
+	if (priv->volt_dc == NULL) {
+		priv->volt_dc = metric_new(priv->reg,
+		    "sensor_voltage_dc_volts",
+		    "DC voltage sensor reading in Volts (uV DC -> V)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->volt_dc);
+}
 
-	priv->volt_ac = metric_new(r, "sensor_voltage_ac_volts",
-	    "AC voltage sensor reading in Volts (uV AC -> V)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_volt_ac(struct sensors_modpriv *priv)
+{
+	if (priv->volt_ac == NULL) {
+		priv->volt_ac = metric_new(priv->reg,
+		    "sensor_voltage_ac_volts",
+		    "AC voltage sensor reading in Volts (uV AC -> V)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->volt_ac);
+}
 
-	priv->ohms = metric_new(r, "sensor_resistance_ohms",
-	    "Resistance sensor reading in Ohms",
-	    METRIC_GAUGE, METRIC_VAL_INT64, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_ohms(struct sensors_modpriv *priv)
+{
+	if (priv->ohms == NULL) {
+		priv->ohms = metric_new(priv->reg, "sensor_resistance_ohms",
+		    "Resistance sensor reading in Ohms",
+		    METRIC_GAUGE, METRIC_VAL_INT64, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->ohms);
+}
 
-	priv->watts = metric_new(r, "sensor_power_watts",
-	    "Power sensor reading in Watts (uW -> W)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_watts(struct sensors_modpriv *priv)
+{
+	if (priv->watts == NULL) {
+		priv->watts = metric_new(priv->reg, "sensor_power_watts",
+		    "Power sensor reading in Watts (uW -> W)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->watts);
+}
 
-	priv->amps = metric_new(r, "sensor_current_amperes",
-	    "Current sensor reading in Amperes (uA -> A)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_amps(struct sensors_modpriv *priv)
+{
+	if (priv->amps == NULL) {
+		priv->amps = metric_new(priv->reg,
+		    "sensor_current_amperes",
+		    "Current sensor reading in Amperes (uA -> A)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->amps);
+}
 
-	priv->watthour = metric_new(r, "sensor_energy_watthours",
-	    "Energy capacity sensor reading in Watt-hours (uWh -> Wh)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_watthour(struct sensors_modpriv *priv)
+{
+	if (priv->watthour == NULL) {
+		priv->watthour = metric_new(priv->reg,
+		    "sensor_energy_watthours",
+		    "Energy capacity sensor reading in Watt-hours (uWh -> Wh)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->watthour);
+}
 
-	priv->amphour = metric_new(r, "sensor_charge_amphours",
-	    "Charge capacity sensor reading in Ampere-hours (uAh -> Ah)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_amphour(struct sensors_modpriv *priv)
+{
+	if (priv->amphour == NULL) {
+		priv->amphour = metric_new(priv->reg,
+		    "sensor_charge_amphours",
+		    "Charge capacity sensor reading in Ampere-hours (uAh -> Ah)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->amphour);
+}
 
-	priv->indicator = metric_new(r, "sensor_indicator_on",
-	    "Boolean indicator sensor (1 = On, 0 = Off)",
-	    METRIC_GAUGE, METRIC_VAL_UINT64, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_indicator(struct sensors_modpriv *priv)
+{
+	if (priv->indicator == NULL) {
+		priv->indicator = metric_new(priv->reg, "sensor_indicator_on",
+		    "Boolean indicator sensor (1 = On, 0 = Off)",
+		    METRIC_GAUGE, METRIC_VAL_UINT64, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->indicator);
+}
 
-	priv->integer = metric_new(r, "sensor_raw_value",
-	    "Generic integer sensor reading",
-	    METRIC_GAUGE, METRIC_VAL_INT64, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_integer(struct sensors_modpriv *priv)
+{
+	if (priv->integer == NULL) {
+		priv->integer = metric_new(priv->reg, "sensor_raw_value",
+		    "Generic integer sensor reading",
+		    METRIC_GAUGE, METRIC_VAL_INT64, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->integer);
+}
 
-	priv->percent = metric_new(r, "sensor_percent",
-	    "Percentage sensor reading in percent (m% -> %)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_percent(struct sensors_modpriv *priv)
+{
+	if (priv->percent == NULL) {
+		priv->percent = metric_new(priv->reg, "sensor_percent",
+		    "Percentage sensor reading in percent (m% -> %)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->percent);
+}
 
-	priv->lux = metric_new(r, "sensor_illuminance_lux",
-	    "Illuminance sensor reading in lux (ulx -> lx)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_lux(struct sensors_modpriv *priv)
+{
+	if (priv->lux == NULL) {
+		priv->lux = metric_new(priv->reg, "sensor_illuminance_lux",
+		    "Illuminance sensor reading in lux (ulx -> lx)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->lux);
+}
 
-	priv->drive = metric_new(r, "sensor_drive_state",
-	    "Drive sensor state (1=empty, 2=ready, 3=powering up, 4=online, 5=idle, 6=active, 7=rebuilding, 8=powering down, 9=failed, 10=degraded)",
-	    METRIC_GAUGE, METRIC_VAL_INT64, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_drive(struct sensors_modpriv *priv)
+{
+	if (priv->drive == NULL) {
+		priv->drive = metric_new(priv->reg, "sensor_drive_state",
+		    "Drive sensor state (1=empty, 2=ready, 3=powering up, 4=online, 5=idle, 6=active, 7=rebuilding, 8=powering down, 9=failed, 10=degraded)",
+		    METRIC_GAUGE, METRIC_VAL_INT64, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->drive);
+}
 
-	priv->timedelta = metric_new(r, "sensor_timedelta_seconds",
-	    "System time error sensor reading in seconds (nSec -> secs)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_timedelta(struct sensors_modpriv *priv)
+{
+	if (priv->timedelta == NULL) {
+		priv->timedelta = metric_new(priv->reg,
+		    "sensor_timedelta_seconds",
+		    "System time error sensor reading in seconds (nSec -> secs)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->timedelta);
+}
 
-	priv->humidity = metric_new(r, "sensor_humidity_percent",
-	    "Humidity sensor reading in percent relative humidity (m%RH -> %)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_humidity(struct sensors_modpriv *priv)
+{
+	if (priv->humidity == NULL) {
+		priv->humidity = metric_new(priv->reg,
+		    "sensor_humidity_percent",
+		    "Humidity sensor reading in percent relative humidity (m%RH -> %)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->humidity);
+}
 
-	priv->freq = metric_new(r, "sensor_frequency_hertz",
-	    "Frequency sensor reading in Hertz (uHz -> Hz)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_freq(struct sensors_modpriv *priv)
+{
+	if (priv->freq == NULL) {
+		priv->freq = metric_new(priv->reg,
+		    "sensor_frequency_hertz",
+		    "Frequency sensor reading in Hertz (uHz -> Hz)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->freq);
+}
 
-	priv->angle = metric_new(r, "sensor_angle_degrees",
-	    "Angle sensor reading in degrees (uDegrees -> degrees)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_angle(struct sensors_modpriv *priv)
+{
+	if (priv->angle == NULL) {
+		priv->angle = metric_new(priv->reg,
+		    "sensor_angle_degrees",
+		    "Angle sensor reading in degrees (uDegrees -> degrees)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->angle);
+}
 
-	priv->distance = metric_new(r, "sensor_distance_meters",
-	    "Distance sensor reading in meters (uMeter -> m)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_distance(struct sensors_modpriv *priv)
+{
+	if (priv->distance == NULL) {
+		priv->distance = metric_new(priv->reg,
+		    "sensor_distance_meters",
+		    "Distance sensor reading in meters (uMeter -> m)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->distance);
+}
 
-	priv->pressure = metric_new(r, "sensor_pressure_pascals",
-	    "Pressure sensor reading in Pascals (mPa -> Pa)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_pressure(struct sensors_modpriv *priv)
+{
+	if (priv->pressure == NULL) {
+		priv->pressure = metric_new(priv->reg,
+		    "sensor_pressure_pascals",
+		    "Pressure sensor reading in Pascals (mPa -> Pa)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->pressure);
+}
 
-	priv->accel = metric_new(r, "sensor_acceleration_meters_per_sec_squared",
-	    "Acceleration sensor reading in m/s^2 (u m/s^2 -> m/s^2)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_accel(struct sensors_modpriv *priv)
+{
+	if (priv->accel == NULL) {
+		priv->accel = metric_new(priv->reg,
+		    "sensor_acceleration_meters_per_sec_squared",
+		    "Acceleration sensor reading in m/s^2 (u m/s^2 -> m/s^2)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->accel);
+}
 
-	priv->velocity = metric_new(r, "sensor_velocity_meters_per_second",
-	    "Velocity sensor reading in m/s (u m/s -> m/s)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_velocity(struct sensors_modpriv *priv)
+{
+	if (priv->velocity == NULL) {
+		priv->velocity = metric_new(priv->reg,
+		    "sensor_velocity_meters_per_second",
+		    "Velocity sensor reading in m/s (u m/s -> m/s)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->velocity);
+}
 
-	priv->energy = metric_new(r, "sensor_energy_joules",
-	    "Energy sensor reading in Joules (uJ -> J)",
-	    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL, &sensors_metric_ops,
-	    metric_label_new("device", METRIC_VAL_STRING),
-	    metric_label_new("sensor", METRIC_VAL_STRING),
-	    metric_label_new("desc", METRIC_VAL_STRING),
-	    NULL);
+static struct metric *
+ensure_energy(struct sensors_modpriv *priv)
+{
+	if (priv->energy == NULL) {
+		priv->energy = metric_new(priv->reg,
+		    "sensor_energy_joules",
+		    "Energy sensor reading in Joules (uJ -> J)",
+		    METRIC_GAUGE, METRIC_VAL_DOUBLE, NULL,
+		    &sensors_metric_ops,
+		    metric_label_new("device", METRIC_VAL_STRING),
+		    metric_label_new("sensor", METRIC_VAL_STRING),
+		    metric_label_new("desc", METRIC_VAL_STRING),
+		    NULL);
+	}
+	return (priv->energy);
 }
 
 static int
@@ -276,11 +482,15 @@ sensors_collect(void *modpriv)
 	struct sensors_modpriv *priv = modpriv;
 	struct sensordev snsrdev;
 	struct sensor snsr;
+	struct metric *m;
 	size_t sdlen, slen;
 	int mib[5];
 	int dev, type, numt;
 	char sensorname[64];
 	char desc[33];
+
+	if (priv == NULL || priv->reg == NULL)
+		return (0);
 
 	/*
 	 * Walk sensor devices: mib { CTL_HW, HW_SENSORS, dev } returns
@@ -355,119 +565,188 @@ sensors_collect(void *modpriv)
 				 */
 				switch (snsr.type) {
 				case SENSOR_TEMP:
-					metric_update(priv->temp,
-					    snsrdev.xname, sensorname, desc,
-					    (snsr.value - 273150000) / 1000000.0);
+					m = ensure_temp(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    (snsr.value - 273150000) / 1000000.0);
 					break;
 				case SENSOR_FANRPM:
-					metric_update(priv->fan,
-					    snsrdev.xname, sensorname, desc,
-					    (uint64_t)snsr.value);
+					m = ensure_fan(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    (uint64_t)snsr.value);
 					break;
 				case SENSOR_VOLTS_DC:
-					metric_update(priv->volt_dc,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_volt_dc(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_VOLTS_AC:
-					metric_update(priv->volt_ac,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_volt_ac(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_OHMS:
-					metric_update(priv->ohms,
-					    snsrdev.xname, sensorname, desc,
-					    (int64_t)snsr.value);
+					m = ensure_ohms(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    (int64_t)snsr.value);
 					break;
 				case SENSOR_WATTS:
-					metric_update(priv->watts,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_watts(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_AMPS:
-					metric_update(priv->amps,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_amps(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_WATTHOUR:
-					metric_update(priv->watthour,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_watthour(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_AMPHOUR:
-					metric_update(priv->amphour,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_amphour(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_INDICATOR:
-					metric_update(priv->indicator,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value ? (uint64_t)1 : (uint64_t)0);
+					m = ensure_indicator(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value ? (uint64_t)1 : (uint64_t)0);
 					break;
 				case SENSOR_INTEGER:
-					metric_update(priv->integer,
-					    snsrdev.xname, sensorname, desc,
-					    (int64_t)snsr.value);
+					m = ensure_integer(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    (int64_t)snsr.value);
 					break;
 				case SENSOR_PERCENT:
-					metric_update(priv->percent,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000.0);
+					m = ensure_percent(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000.0);
 					break;
 				case SENSOR_LUX:
-					metric_update(priv->lux,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_lux(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_DRIVE:
-					metric_update(priv->drive,
-					    snsrdev.xname, sensorname, desc,
-					    (int64_t)snsr.value);
+					m = ensure_drive(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    (int64_t)snsr.value);
 					break;
 				case SENSOR_TIMEDELTA:
-					metric_update(priv->timedelta,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000000.0);
+					m = ensure_timedelta(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000000.0);
 					break;
 				case SENSOR_HUMIDITY:
-					metric_update(priv->humidity,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000.0);
+					m = ensure_humidity(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000.0);
 					break;
 				case SENSOR_FREQ:
-					metric_update(priv->freq,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_freq(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_ANGLE:
-					metric_update(priv->angle,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_angle(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_DISTANCE:
-					metric_update(priv->distance,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_distance(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_PRESSURE:
-					metric_update(priv->pressure,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000.0);
+					m = ensure_pressure(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000.0);
 					break;
 				case SENSOR_ACCEL:
-					metric_update(priv->accel,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_accel(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_VELOCITY:
-					metric_update(priv->velocity,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_velocity(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				case SENSOR_ENERGY:
-					metric_update(priv->energy,
-					    snsrdev.xname, sensorname, desc,
-					    snsr.value / 1000000.0);
+					m = ensure_energy(priv);
+					if (m != NULL)
+						metric_update(m,
+						    snsrdev.xname, sensorname,
+						    desc,
+						    snsr.value / 1000000.0);
 					break;
 				default:
 					break;
@@ -476,29 +755,52 @@ sensors_collect(void *modpriv)
 		}
 	}
 
-	metric_clear_old_values(priv->temp);
-	metric_clear_old_values(priv->fan);
-	metric_clear_old_values(priv->volt_dc);
-	metric_clear_old_values(priv->volt_ac);
-	metric_clear_old_values(priv->ohms);
-	metric_clear_old_values(priv->watts);
-	metric_clear_old_values(priv->amps);
-	metric_clear_old_values(priv->watthour);
-	metric_clear_old_values(priv->amphour);
-	metric_clear_old_values(priv->indicator);
-	metric_clear_old_values(priv->integer);
-	metric_clear_old_values(priv->percent);
-	metric_clear_old_values(priv->lux);
-	metric_clear_old_values(priv->drive);
-	metric_clear_old_values(priv->timedelta);
-	metric_clear_old_values(priv->humidity);
-	metric_clear_old_values(priv->freq);
-	metric_clear_old_values(priv->angle);
-	metric_clear_old_values(priv->distance);
-	metric_clear_old_values(priv->pressure);
-	metric_clear_old_values(priv->accel);
-	metric_clear_old_values(priv->velocity);
-	metric_clear_old_values(priv->energy);
+	if (priv->temp != NULL)
+		metric_clear_old_values(priv->temp);
+	if (priv->fan != NULL)
+		metric_clear_old_values(priv->fan);
+	if (priv->volt_dc != NULL)
+		metric_clear_old_values(priv->volt_dc);
+	if (priv->volt_ac != NULL)
+		metric_clear_old_values(priv->volt_ac);
+	if (priv->ohms != NULL)
+		metric_clear_old_values(priv->ohms);
+	if (priv->watts != NULL)
+		metric_clear_old_values(priv->watts);
+	if (priv->amps != NULL)
+		metric_clear_old_values(priv->amps);
+	if (priv->watthour != NULL)
+		metric_clear_old_values(priv->watthour);
+	if (priv->amphour != NULL)
+		metric_clear_old_values(priv->amphour);
+	if (priv->indicator != NULL)
+		metric_clear_old_values(priv->indicator);
+	if (priv->integer != NULL)
+		metric_clear_old_values(priv->integer);
+	if (priv->percent != NULL)
+		metric_clear_old_values(priv->percent);
+	if (priv->lux != NULL)
+		metric_clear_old_values(priv->lux);
+	if (priv->drive != NULL)
+		metric_clear_old_values(priv->drive);
+	if (priv->timedelta != NULL)
+		metric_clear_old_values(priv->timedelta);
+	if (priv->humidity != NULL)
+		metric_clear_old_values(priv->humidity);
+	if (priv->freq != NULL)
+		metric_clear_old_values(priv->freq);
+	if (priv->angle != NULL)
+		metric_clear_old_values(priv->angle);
+	if (priv->distance != NULL)
+		metric_clear_old_values(priv->distance);
+	if (priv->pressure != NULL)
+		metric_clear_old_values(priv->pressure);
+	if (priv->accel != NULL)
+		metric_clear_old_values(priv->accel);
+	if (priv->velocity != NULL)
+		metric_clear_old_values(priv->velocity);
+	if (priv->energy != NULL)
+		metric_clear_old_values(priv->energy);
 
 	return (0);
 }
