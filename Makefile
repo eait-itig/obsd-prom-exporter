@@ -40,6 +40,7 @@ SRCS+=		collect_uvm.c
 SRCS+=		collect_pools.c
 SRCS+=		collect_procs.c
 SRCS+=		collect_disk.c
+SRCS+=		collect_sensors.c
 
 CFLAGS+=	-fno-strict-aliasing -fstack-protector-all -Werror \
 		    -fwrapv -fPIC -Wall
